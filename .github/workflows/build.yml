@@ -1,0 +1,32 @@
+name: Build ScreenCaptureTool
+
+on:
+  workflow_dispatch: # 支持手动触发
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Restore dependencies
+      run: dotnet restore ScreenCaptureTool/ScreenCaptureTool.csproj
+
+    - name: Build
+      run: dotnet build ScreenCaptureTool/ScreenCaptureTool.csproj --configuration Release --no-restore
+
+    - name: Publish
+      run: dotnet publish ScreenCaptureTool/ScreenCaptureTool.csproj --configuration Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=true -o ./publish
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ScreenCaptureTool-EXE
+        path: ./publish/ScreenCaptureTool.exe
