@@ -3,13 +3,19 @@ using System.Windows.Forms;
 
 namespace ScreenCaptureTool
 {
-    internal static class Program
+    static class Program
     {
         [STAThread]
         static void Main()
         {
-            ApplicationConfiguration.Initialize();
-            Application.Run(new MainForm());
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            
+            // 创建主窗体(托盘应用)
+            var mainForm = new MainForm();
+            
+            // 必须将窗体传给 Application.Run()
+            Application.Run(mainForm);
         }
     }
 }
