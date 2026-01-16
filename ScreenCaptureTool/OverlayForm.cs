@@ -1,164 +1,226 @@
 using System;
-using System.Drawing;
-using System.Windows.Forms;
 using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Windows.Forms;
 using OpenCvSharp;
-using OpenCvSharp.Extensions; // Note: Ensure OpenCvSharp4.Extensions package is added if needed, or use BitmapConverter directly
+using OpenCvSharp.Extensions;
 
 namespace ScreenCaptureTool
 {
     public class OverlayForm : Form
     {
         private Bitmap image;
-        private Rectangle region;
         private Settings settings;
-        private List<Rectangle> matchResults = new List<Rectangle>();
+        private System.Drawing.Point lastMousePos;
         private bool isDragging = false;
-        private System.Drawing.Point dragStart;
+        private bool isResizing = false;
+        private string resizeDir = "";
+        private List<MarkerForm> markers = new List<MarkerForm>();
 
-        public OverlayForm(Bitmap img, Rectangle reg, Settings sets)
+        public OverlayForm(Bitmap img, System.Drawing.Rectangle region, Settings settings)
         {
             this.image = img;
-            this.region = reg;
-            this.settings = sets;
-
+            this.settings = settings;
             this.FormBorderStyle = FormBorderStyle.None;
+            this.StartPosition = FormStartPosition.Manual;
+            this.Location = region.Location;
+            this.Size = new System.Drawing.Size(region.Width + settings.BorderSize * 2, region.Height + settings.BorderSize * 2);
             this.TopMost = true;
             this.ShowInTaskbar = false;
-            this.Opacity = settings.DefaultOpacity;
-            this.Size = img.Size;
-            this.Location = reg.Location;
-            this.BackgroundImage = img;
-            this.BackgroundImageLayout = ImageLayout.Stretch;
+            this.DoubleBuffered = true;
+            this.Opacity = settings.DefaultOpacity / 100.0;
+
+            this.MouseDown += OverlayForm_MouseDown;
+            this.MouseMove += OverlayForm_MouseMove;
+            this.MouseUp += OverlayForm_MouseUp;
+            this.MouseWheel += OverlayForm_MouseWheel;
+            this.KeyDown += OverlayForm_KeyDown;
         }
 
-        protected override void OnMouseDown(MouseEventArgs e)
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            // 画边框
+            using (Pen pen = new Pen(Color.Cyan, settings.BorderSize))
+            {
+                g.DrawRectangle(pen, settings.BorderSize / 2, settings.BorderSize / 2, this.Width - settings.BorderSize, this.Height - settings.BorderSize);
+            }
+            // 画图片
+            g.DrawImage(image, settings.BorderSize, settings.BorderSize, 
+                this.Width - settings.BorderSize * 2, this.Height - settings.BorderSize * 2);
+            
+            // 画右下角缩放手柄提示
+            using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, Color.Cyan)))
+            {
+                System.Drawing.Point[] pts = {
+                    new System.Drawing.Point(this.Width, this.Height - 10),
+                    new System.Drawing.Point(this.Width, this.Height),
+                    new System.Drawing.Point(this.Width - 10, this.Height)
+                };
+                g.FillPolygon(brush, pts);
+            }
+        }
+
+        private void OverlayForm_MouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
             {
-                isDragging = true;
-                dragStart = e.Location;
+                if (e.X > this.Width - 20 && e.Y > this.Height - 20) { isResizing = true; resizeDir = "corner"; }
+                else { isDragging = true; lastMousePos = e.Location; }
             }
-            else if (e.Button == MouseButtons.Right && Control.ModifierKeys == Keys.Control)
+            else if (e.Button == MouseButtons.Right)
             {
-                this.Close();
+                if (ModifierKeys == Keys.Control)
+                {
+                    CloseAllMarkers();
+                    this.Close();
+                }
             }
         }
 
-        protected override void OnMouseMove(MouseEventArgs e)
+        private void OverlayForm_MouseMove(object sender, MouseEventArgs e)
         {
-            if (isDragging)
+            if (e.X > this.Width - 20 && e.Y > this.Height - 20) this.Cursor = Cursors.SizeNWSE;
+            else this.Cursor = Cursors.SizeAll;
+
+            if (isResizing)
             {
-                this.Left += e.X - dragStart.X;
-                this.Top += e.Y - dragStart.Y;
+                this.Size = new System.Drawing.Size(Math.Max(20, e.X), Math.Max(20, e.Y));
+                this.Invalidate();
+            }
+            else if (isDragging)
+            {
+                this.Left += e.X - lastMousePos.X;
+                this.Top += e.Y - lastMousePos.Y;
             }
         }
 
-        protected override void OnMouseUp(MouseEventArgs e)
+        private void OverlayForm_MouseUp(object sender, MouseEventArgs e)
         {
             isDragging = false;
+            isResizing = false;
         }
 
-        protected override void OnMouseWheel(MouseEventArgs e)
+        private void OverlayForm_MouseWheel(object sender, MouseEventArgs e)
         {
-            if (Control.ModifierKeys == Keys.Control)
+            if (ModifierKeys == Keys.Control)
             {
-                // 缩放
-                float scale = e.Delta > 0 ? 1.1f : 0.9f;
-                this.Width = (int)(this.Width * scale);
-                this.Height = (int)(this.Height * scale);
+                float ratio = e.Delta > 0 ? 1.1f : 0.9f;
+                this.Size = new System.Drawing.Size((int)(this.Width * ratio), (int)(this.Height * ratio));
             }
             else
             {
-                // 透明度
-                this.Opacity = Math.Clamp(this.Opacity + (e.Delta > 0 ? 0.05 : -0.05), 0.1, 1.0);
+                double delta = e.Delta / 1200.0;
+                this.Opacity = Math.Max(0.1, Math.Min(1.0, this.Opacity + delta));
             }
         }
 
-        protected override void OnKeyDown(KeyEventArgs e)
+        private void OverlayForm_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Enter)
             {
-                PerformImageMatch();
+                StartMatching();
             }
             else if (e.KeyCode == Keys.Escape)
             {
-                matchResults.Clear();
-                this.Invalidate();
+                CloseAllMarkers();
             }
         }
 
-        private void PerformImageMatch()
+        private void StartMatching()
         {
-            // 截取全屏
-            Bitmap screen = new Bitmap(Screen.PrimaryScreen.Bounds.Width, Screen.PrimaryScreen.Bounds.Height);
-            using (var g = Graphics.FromImage(screen))
+            CloseAllMarkers();
+            try
             {
-                g.CopyFromScreen(0, 0, 0, 0, screen.Size);
-            }
-
-            using (Mat screenMat = BitmapConverter.ToMat(screen))
-            using (Mat templateMat = BitmapConverter.ToMat(image))
-            using (Mat res = new Mat())
-            {
-                Cv2.MatchTemplate(screenMat, templateMat, res, TemplateMatchModes.CCoeffNormed);
-                Cv2.Threshold(res, res, 0.8, 1.0, ThresholdTypes.Tozero);
-
-                matchResults.Clear();
-                while (true)
+                // 1. 截取全屏
+                System.Drawing.Rectangle bounds = Screen.PrimaryScreen.Bounds;
+                using (Bitmap screenBmp = new Bitmap(bounds.Width, bounds.Height))
                 {
-                    double minVal, maxVal;
-                    OpenCvSharp.Point minLoc, maxLoc;
-                    Cv2.MinMaxLoc(res, out minVal, out maxVal, out minLoc, out maxLoc);
-
-                    if (maxVal >= 0.8)
+                    using (Graphics g = Graphics.FromImage(screenBmp))
                     {
-                        matchResults.Add(new Rectangle(maxLoc.X, maxLoc.Y, image.Width, image.Height));
-                        // 屏蔽已找到的区域
-                        Cv2.FloodFill(res, maxLoc, new Scalar(0));
+                        g.CopyFromScreen(0, 0, 0, 0, bounds.Size);
                     }
-                    else break;
+
+                    // 2. OpenCV 匹配
+                    using (Mat screenMat = screenBmp.ToMat())
+                    using (Mat templateMat = image.ToMat())
+                    using (Mat result = new Mat())
+                    {
+                        Cv2.MatchTemplate(screenMat, templateMat, result, TemplateMatchModes.CCoeffNormed);
+                        Cv2.Threshold(result, result, 0.9, 1.0, ThresholdTypes.Tozero);
+
+                        int count = 0;
+                        while (true)
+                        {
+                            double minVal, maxVal;
+                            OpenCvSharp.Point minLoc, maxLoc;
+                            Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
+
+                            if (maxVal >= 0.9 && count < 50) // 最多标记 50 个
+                            {
+                                count++;
+                                System.Drawing.Point pos = new System.Drawing.Point(maxLoc.X + templateMat.Width / 2, maxLoc.Y + templateMat.Height / 2);
+                                markers.Add(new MarkerForm(count.ToString(), pos, Color.Red));
+                                Cv2.FloodFill(result, maxLoc, new Scalar(0));
+                            }
+                            else break;
+                        }
+
+                        if (count == 0)
+                        {
+                            // 找不到，在当前窗口中心显示红色 X
+                            markers.Add(new MarkerForm("X", new System.Drawing.Point(this.Left + this.Width / 2, this.Top + this.Height / 2), Color.Red));
+                        }
+                    }
                 }
             }
-            
-            // 在屏幕上显示标记（这里需要一个全屏透明层来绘制标记，简化起见直接在当前 Overlay 逻辑中处理或弹出新层）
-            ShowMarkers();
+            catch (Exception ex)
+            {
+                MessageBox.Show("匹配出错: " + ex.Message);
+            }
         }
 
-        private void ShowMarkers()
+        private void CloseAllMarkers()
         {
-            // 逻辑：创建一个全屏透明窗体来绘制 1, 2 标记
-            var markerForm = new MarkerForm(matchResults);
-            markerForm.Show();
+            foreach (var m in markers) m.Close();
+            markers.Clear();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                CloseAllMarkers();
+                image?.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 
     public class MarkerForm : Form
     {
-        private List<Rectangle> markers;
-        public MarkerForm(List<Rectangle> m)
+        public MarkerForm(string text, System.Drawing.Point pos, Color color)
         {
-            this.markers = m;
             this.FormBorderStyle = FormBorderStyle.None;
-            this.WindowState = FormWindowState.Maximized;
+            this.Size = new System.Drawing.Size(60, 60);
+            this.Location = new System.Drawing.Point(pos.X - 30, pos.Y - 30);
+            this.StartPosition = FormStartPosition.Manual;
             this.TopMost = true;
-            this.TransparencyKey = Color.Magenta;
-            this.BackColor = Color.Magenta;
-        }
+            this.ShowInTaskbar = false;
+            this.BackColor = Color.Lime;
+            this.TransparencyKey = Color.Lime;
 
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            for (int i = 0; i < markers.Count; i++)
-            {
-                var rect = markers[i];
-                e.Graphics.DrawRectangle(Pens.Red, rect);
-                e.Graphics.DrawString((i + 1).ToString(), new Font("Arial", 16), Brushes.Yellow, rect.Location);
-            }
-        }
-
-        protected override void OnKeyDown(KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Escape) this.Close();
+            Label lbl = new Label { 
+                Text = text, 
+                ForeColor = color, 
+                Font = new Font("Arial", 24, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Dock = DockStyle.Fill
+            };
+            this.Controls.Add(lbl);
+            this.Show();
         }
     }
 }
