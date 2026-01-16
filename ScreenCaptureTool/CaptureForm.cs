@@ -250,8 +250,8 @@ namespace ScreenCaptureTool
 
         private void DrawMagnifier(Graphics g, Point mousePos)
         {
-            int magSize = 130;
-            int zoom = 7;
+            int magSize = 120;
+            int zoom = 8;
             int sourceSize = magSize / zoom;
             
             // 放大镜位置（偏移鼠标一段距离，避免遮挡）
