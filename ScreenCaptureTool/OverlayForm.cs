@@ -142,37 +142,15 @@ namespace ScreenCaptureTool
                     {
                         g.CopyFromScreen(0, 0, 0, 0, bounds.Size);
                     }
-
-                    // 2. OpenCV 匹配
-                    using (Mat screenMat = screenBmp.ToMat())
-                    using (Mat templateMat = image.ToMat())
-                    using (Mat result = new Mat())
+                    int count = TryMatchWithOrb(screenBmp);
+                    if (count == 0)
                     {
-                        Cv2.MatchTemplate(screenMat, templateMat, result, TemplateMatchModes.CCoeffNormed);
-                        Cv2.Threshold(result, result, 0.9, 1.0, ThresholdTypes.Tozero);
-
-                        int count = 0;
-                        while (true)
-                        {
-                            double minVal, maxVal;
-                            OpenCvSharp.Point minLoc, maxLoc;
-                            Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
-
-                            if (maxVal >= 0.9 && count < 50) // 最多标记 50 个
-                            {
-                                count++;
-                                System.Drawing.Point pos = new System.Drawing.Point(maxLoc.X + templateMat.Width / 2, maxLoc.Y + templateMat.Height / 2);
-                                markers.Add(new MarkerForm(count.ToString(), pos, Color.Red));
-                                Cv2.FloodFill(result, maxLoc, new Scalar(0));
-                            }
-                            else break;
-                        }
-
-                        if (count == 0)
-                        {
-                            // 找不到，在当前窗口中心显示红色 X
-                            markers.Add(new MarkerForm("X", new System.Drawing.Point(this.Left + this.Width / 2, this.Top + this.Height / 2), Color.Red));
-                        }
+                        count = MatchWithTemplate(screenBmp, 0.9);
+                    }
+                    if (count == 0)
+                    {
+                        // 找不到，在当前窗口中心显示红色 X
+                        markers.Add(new MarkerForm("X", new System.Drawing.Point(this.Left + this.Width / 2, this.Top + this.Height / 2), Color.Red));
                     }
                 }
             }
@@ -180,6 +158,179 @@ namespace ScreenCaptureTool
             {
                 MessageBox.Show("匹配出错: " + ex.Message);
             }
+        }
+
+        private int TryMatchWithOrb(Bitmap screenBmp)
+        {
+            using (Mat screenMat = screenBmp.ToMat())
+            using (Mat templateMat = image.ToMat())
+            using (Mat screenGray = new Mat())
+            using (Mat templateGray = new Mat())
+            {
+                Cv2.CvtColor(screenMat, screenGray, ColorConversionCodes.BGR2GRAY);
+                Cv2.CvtColor(templateMat, templateGray, ColorConversionCodes.BGR2GRAY);
+
+                using (var orb = ORB.Create(1000))
+                {
+                    KeyPoint[] kpTemplate, kpScreen;
+                    using (Mat descTemplate = new Mat())
+                    using (Mat descScreen = new Mat())
+                    {
+                        orb.DetectAndCompute(templateGray, null, out kpTemplate, descTemplate);
+                        orb.DetectAndCompute(screenGray, null, out kpScreen, descScreen);
+
+                        if (descTemplate.Empty() || descScreen.Empty())
+                        {
+                            return 0;
+                        }
+
+                        using (var matcher = new BFMatcher(NormTypes.Hamming, false))
+                        {
+                            DMatch[][] knnMatches = matcher.KnnMatch(descTemplate, descScreen, 2);
+                            List<DMatch> good = new List<DMatch>();
+                            for (int i = 0; i < knnMatches.Length; i++)
+                            {
+                                if (knnMatches[i].Length < 2) continue;
+                                if (knnMatches[i][0].Distance < 0.75f * knnMatches[i][1].Distance)
+                                {
+                                    good.Add(knnMatches[i][0]);
+                                }
+                            }
+
+                            if (good.Count < 12)
+                            {
+                                return 0;
+                            }
+
+                            Point2f[] srcPts = new Point2f[good.Count];
+                            Point2f[] dstPts = new Point2f[good.Count];
+                            for (int i = 0; i < good.Count; i++)
+                            {
+                                srcPts[i] = kpTemplate[good[i].QueryIdx].Pt;
+                                dstPts[i] = kpScreen[good[i].TrainIdx].Pt;
+                            }
+
+                            using (Mat homography = Cv2.FindHomography(srcPts, dstPts, HomographyMethods.Ransac, 3.0))
+                            {
+                                if (homography.Empty())
+                                {
+                                    return 0;
+                                }
+
+                                Point2f[] corners = new Point2f[]
+                                {
+                                    new Point2f(0, 0),
+                                    new Point2f(templateMat.Width, 0),
+                                    new Point2f(templateMat.Width, templateMat.Height),
+                                    new Point2f(0, templateMat.Height)
+                                };
+                                Point2f[] projected = Cv2.PerspectiveTransform(corners, homography);
+
+                                double minX = projected[0].X;
+                                double maxX = projected[0].X;
+                                double minY = projected[0].Y;
+                                double maxY = projected[0].Y;
+                                for (int i = 1; i < projected.Length; i++)
+                                {
+                                    if (projected[i].X < minX) minX = projected[i].X;
+                                    if (projected[i].X > maxX) maxX = projected[i].X;
+                                    if (projected[i].Y < minY) minY = projected[i].Y;
+                                    if (projected[i].Y > maxY) maxY = projected[i].Y;
+                                }
+
+                                double width = Distance(projected[0], projected[1]);
+                                double height = Distance(projected[0], projected[3]);
+                                double scaleX = width / Math.Max(1, templateMat.Width);
+                                double scaleY = height / Math.Max(1, templateMat.Height);
+                                double scale = (scaleX + scaleY) * 0.5;
+
+                                if (scale < 0.2 || scale > 5.0)
+                                {
+                                    // 缩放异常时，仅标记一次
+                                    System.Drawing.Point center = new System.Drawing.Point((int)((minX + maxX) * 0.5), (int)((minY + maxY) * 0.5));
+                                    AddNumberedMarker(center);
+                                    return 1;
+                                }
+
+                                int targetW = Math.Max(8, (int)Math.Round(templateGray.Width * scale));
+                                int targetH = Math.Max(8, (int)Math.Round(templateGray.Height * scale));
+                                using (Mat scaledTemplate = new Mat())
+                                {
+                                    Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
+                                    int count = MatchWithTemplate(screenGray, scaledTemplate, 0.88);
+                                    if (count > 0)
+                                    {
+                                        return count;
+                                    }
+                                }
+
+                                System.Drawing.Point singleCenter = new System.Drawing.Point((int)((minX + maxX) * 0.5), (int)((minY + maxY) * 0.5));
+                                AddNumberedMarker(singleCenter);
+                                return 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private int MatchWithTemplate(Bitmap screenBmp, double threshold)
+        {
+            using (Mat screenMat = screenBmp.ToMat())
+            using (Mat templateMat = image.ToMat())
+            using (Mat screenGray = new Mat())
+            using (Mat templateGray = new Mat())
+            {
+                Cv2.CvtColor(screenMat, screenGray, ColorConversionCodes.BGR2GRAY);
+                Cv2.CvtColor(templateMat, templateGray, ColorConversionCodes.BGR2GRAY);
+                return MatchWithTemplate(screenGray, templateGray, threshold);
+            }
+        }
+
+        private int MatchWithTemplate(Mat screenGray, Mat templateGray, double threshold)
+        {
+            if (screenGray.Width < templateGray.Width || screenGray.Height < templateGray.Height)
+            {
+                return 0;
+            }
+
+            using (Mat result = new Mat())
+            {
+                Cv2.MatchTemplate(screenGray, templateGray, result, TemplateMatchModes.CCoeffNormed);
+                Cv2.Threshold(result, result, threshold, 1.0, ThresholdTypes.Tozero);
+
+                int count = 0;
+                while (true)
+                {
+                    double minVal, maxVal;
+                    OpenCvSharp.Point minLoc, maxLoc;
+                    Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
+
+                    if (maxVal >= threshold && count < 50) // 最多标记 50 个
+                    {
+                        count++;
+                        System.Drawing.Point pos = new System.Drawing.Point(maxLoc.X + templateGray.Width / 2, maxLoc.Y + templateGray.Height / 2);
+                        AddNumberedMarker(pos);
+                        Cv2.FloodFill(result, maxLoc, new Scalar(0));
+                    }
+                    else break;
+                }
+
+                return count;
+            }
+        }
+
+        private void AddNumberedMarker(System.Drawing.Point pos)
+        {
+            int id = markers.Count + 1;
+            markers.Add(new MarkerForm(id.ToString(), pos, Color.Red));
+        }
+
+        private static double Distance(Point2f a, Point2f b)
+        {
+            double dx = a.X - b.X;
+            double dy = a.Y - b.Y;
+            return Math.Sqrt(dx * dx + dy * dy);
         }
 
         private void CloseAllMarkers()
