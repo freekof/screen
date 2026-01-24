@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Windows.Forms;
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
@@ -156,7 +157,8 @@ namespace ScreenCaptureTool
             }
             catch (Exception ex)
             {
-                MessageBox.Show("匹配出错: " + ex.Message);
+                string logPath = LogException(ex);
+                MessageBox.Show("匹配出错: " + ex.Message + "\n日志: " + logPath);
             }
         }
 
@@ -331,6 +333,20 @@ namespace ScreenCaptureTool
             double dx = a.X - b.X;
             double dy = a.Y - b.Y;
             return Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        private static string LogException(Exception ex)
+        {
+            string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "match_error.log");
+            try
+            {
+                File.AppendAllText(logPath, DateTime.Now.ToString("u") + Environment.NewLine + ex + Environment.NewLine + Environment.NewLine);
+            }
+            catch
+            {
+                // Ignore logging failures to avoid masking original error.
+            }
+            return logPath;
         }
 
         private void CloseAllMarkers()
