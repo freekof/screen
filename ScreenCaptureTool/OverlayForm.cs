@@ -210,7 +210,7 @@ namespace ScreenCaptureTool
                                 dstPts[i] = kpScreen[good[i].TrainIdx].Pt;
                             }
 
-                            using (Mat homography = Cv2.FindHomography(srcPts, dstPts, HomographyMethods.Ransac, 3.0))
+                            using (Mat homography = Cv2.FindHomography(InputArray.Create(srcPts), InputArray.Create(dstPts), HomographyMethods.Ransac, 3.0))
                             {
                                 if (homography.Empty())
                                 {
