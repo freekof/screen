@@ -34,9 +34,9 @@ jobs:
       - uses: anomalyco/opencode/github@latest
         if: steps.check.outputs.result == 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         with:
-          model: anthropic/claude-opus-4-5-20251101
+          model: openai/gpt-4.1-mini
           prompt: |
             Review this issue. If there's a clear fix or relevant docs:
             - Provide documentation links
