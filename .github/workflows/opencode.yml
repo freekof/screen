@@ -26,6 +26,6 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         with:
-          model: openai/gpt-4.1-mini
+          model: gpt-5.2
           # share: true
           # github_token: xxxx
