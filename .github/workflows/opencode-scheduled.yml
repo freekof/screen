@@ -23,7 +23,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         with:
-          model: openai/gpt-4.1-mini
+          model: gpt-5.2
           prompt: |
             Review the codebase for any TODO comments and create a summary.
             If you find issues worth addressing, open an issue to track them.
