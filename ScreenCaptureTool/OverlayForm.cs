@@ -12,6 +12,8 @@ namespace ScreenCaptureTool
 {
     public class OverlayForm : Form
     {
+        private static readonly object OpenSync = new object();
+        private static readonly List<OverlayForm> OpenOverlays = new List<OverlayForm>();
         private Bitmap image;
         private Settings settings;
         private System.Drawing.Point lastMousePos;
@@ -38,6 +40,11 @@ namespace ScreenCaptureTool
             this.MouseUp += OverlayForm_MouseUp;
             this.MouseWheel += OverlayForm_MouseWheel;
             this.KeyDown += OverlayForm_KeyDown;
+
+            lock (OpenSync)
+            {
+                OpenOverlays.Add(this);
+            }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -120,7 +127,11 @@ namespace ScreenCaptureTool
 
         private void OverlayForm_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Enter)
+            if (IsCancelHotkey(e.KeyData))
+            {
+                CloseAllOpen();
+            }
+            else if (e.KeyCode == Keys.Enter)
             {
                 StartMatching();
             }
@@ -146,12 +157,12 @@ namespace ScreenCaptureTool
                     int count = TryMatchWithOrb(screenBmp);
                     if (count == 0)
                     {
-                        count = MatchWithTemplate(screenBmp, 0.9);
+                        count = MatchWithTemplate(screenBmp, settings.SimilarityThresholdPercent / 100.0);
                     }
                     if (count == 0)
                     {
                         // 找不到，在当前窗口中心显示红色 X
-                        markers.Add(new MarkerForm("X", new System.Drawing.Point(this.Left + this.Width / 2, this.Top + this.Height / 2), Color.Red));
+                        markers.Add(new MarkerForm(new Rectangle(this.Left + this.Width / 2 - 30, this.Top + this.Height / 2 - 30, 60, 60), "X", settings));
                     }
                 }
             }
@@ -249,8 +260,8 @@ namespace ScreenCaptureTool
                                 if (scale < 0.2 || scale > 5.0)
                                 {
                                     // 缩放异常时，仅标记一次
-                                    System.Drawing.Point center = new System.Drawing.Point((int)((minX + maxX) * 0.5), (int)((minY + maxY) * 0.5));
-                                    AddNumberedMarker(center);
+                                    Rectangle rect = new Rectangle((int)minX, (int)minY, (int)Math.Max(1, maxX - minX), (int)Math.Max(1, maxY - minY));
+                                    AddNumberedMarker(rect);
                                     return 1;
                                 }
 
@@ -259,15 +270,17 @@ namespace ScreenCaptureTool
                                 using (Mat scaledTemplate = new Mat())
                                 {
                                     Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
-                                    int count = MatchWithTemplate(screenGray, scaledTemplate, 0.88);
+                                    double threshold = settings.SimilarityThresholdPercent / 100.0;
+                                    double relaxed = Math.Max(0.5, threshold - 0.02);
+                                    int count = MatchWithTemplate(screenGray, scaledTemplate, relaxed);
                                     if (count > 0)
                                     {
                                         return count;
                                     }
                                 }
 
-                                System.Drawing.Point singleCenter = new System.Drawing.Point((int)((minX + maxX) * 0.5), (int)((minY + maxY) * 0.5));
-                                AddNumberedMarker(singleCenter);
+                                Rectangle singleRect = new Rectangle((int)minX, (int)minY, (int)Math.Max(1, maxX - minX), (int)Math.Max(1, maxY - minY));
+                                AddNumberedMarker(singleRect);
                                 return 1;
                             }
                         }
@@ -311,8 +324,8 @@ namespace ScreenCaptureTool
                     if (maxVal >= threshold && count < 50) // 最多标记 50 个
                     {
                         count++;
-                        System.Drawing.Point pos = new System.Drawing.Point(maxLoc.X + templateGray.Width / 2, maxLoc.Y + templateGray.Height / 2);
-                        AddNumberedMarker(pos);
+                        Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
+                        AddNumberedMarker(rect);
                         Cv2.FloodFill(result, maxLoc, new Scalar(0));
                     }
                     else break;
@@ -322,10 +335,10 @@ namespace ScreenCaptureTool
             }
         }
 
-        private void AddNumberedMarker(System.Drawing.Point pos)
+        private void AddNumberedMarker(Rectangle rect)
         {
             int id = markers.Count + 1;
-            markers.Add(new MarkerForm(id.ToString(), pos, Color.Red));
+            markers.Add(new MarkerForm(rect, id.ToString(), settings));
         }
 
         private static double Distance(Point2f a, Point2f b)
@@ -362,32 +375,101 @@ namespace ScreenCaptureTool
                 CloseAllMarkers();
                 image?.Dispose();
             }
+            lock (OpenSync)
+            {
+                OpenOverlays.Remove(this);
+            }
             base.Dispose(disposing);
+        }
+
+        public static void CloseAllOpen()
+        {
+            List<OverlayForm> overlays;
+            lock (OpenSync)
+            {
+                overlays = new List<OverlayForm>(OpenOverlays);
+            }
+            foreach (var overlay in overlays)
+            {
+                overlay.CloseAllMarkers();
+                overlay.Close();
+            }
+            MarkerForm.CloseAllOpen();
+        }
+
+        private bool IsCancelHotkey(Keys keyData)
+        {
+            Keys expected = (Keys)settings.CancelHotkeyCode;
+            if ((settings.CancelHotkeyModifiers & 1) != 0) expected |= Keys.Alt;
+            if ((settings.CancelHotkeyModifiers & 2) != 0) expected |= Keys.Control;
+            if ((settings.CancelHotkeyModifiers & 4) != 0) expected |= Keys.Shift;
+            return keyData == expected;
         }
     }
 
     public class MarkerForm : Form
     {
-        public MarkerForm(string text, System.Drawing.Point pos, Color color)
+        private static readonly object OpenSync = new object();
+        private static readonly List<MarkerForm> OpenMarkers = new List<MarkerForm>();
+        private readonly string text;
+        private readonly Settings settings;
+
+        public MarkerForm(Rectangle rect, string text, Settings settings)
         {
             this.FormBorderStyle = FormBorderStyle.None;
-            this.Size = new System.Drawing.Size(60, 60);
-            this.Location = new System.Drawing.Point(pos.X - 30, pos.Y - 30);
+            this.Size = new System.Drawing.Size(Math.Max(20, rect.Width), Math.Max(20, rect.Height));
+            this.Location = new System.Drawing.Point(rect.Left, rect.Top);
             this.StartPosition = FormStartPosition.Manual;
             this.TopMost = true;
             this.ShowInTaskbar = false;
             this.BackColor = Color.Lime;
             this.TransparencyKey = Color.Lime;
+            this.DoubleBuffered = true;
+            this.text = text;
+            this.settings = settings;
 
-            Label lbl = new Label { 
-                Text = text, 
-                ForeColor = color, 
-                Font = new Font("Arial", 24, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleCenter,
-                Dock = DockStyle.Fill
-            };
-            this.Controls.Add(lbl);
+            lock (OpenSync)
+            {
+                OpenMarkers.Add(this);
+            }
             this.Show();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            using (SolidBrush fill = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, Color.Red)))
+            using (Pen pen = new Pen(Color.Red, settings.MarkerBorderThickness))
+            using (Font font = new Font("Arial", settings.MarkerFontSize, FontStyle.Bold))
+            using (StringFormat format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+            {
+                Rectangle rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
+                g.FillRectangle(fill, rect);
+                g.DrawRectangle(pen, rect);
+                g.DrawString(text, font, Brushes.White, rect, format);
+            }
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            lock (OpenSync)
+            {
+                OpenMarkers.Remove(this);
+            }
+            base.OnClosed(e);
+        }
+
+        public static void CloseAllOpen()
+        {
+            List<MarkerForm> markers;
+            lock (OpenSync)
+            {
+                markers = new List<MarkerForm>(OpenMarkers);
+            }
+            foreach (var marker in markers)
+            {
+                marker.Close();
+            }
         }
     }
 }

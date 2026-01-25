@@ -14,6 +14,11 @@ namespace ScreenCaptureTool
         private bool isAdjusting = false;
         private int handleSize = 8;
         private HandleType activeHandle = HandleType.None;
+        private readonly Settings settings;
+        private readonly bool stampMode;
+        private float stampScale = 1.0f;
+        private Point currentMouse;
+        private Font magnifierFont;
 
         private enum HandleType
         {
@@ -23,14 +28,18 @@ namespace ScreenCaptureTool
         public Rectangle SelectedRegion => selectedRegion;
         public Bitmap SelectedImage { get; private set; }
 
-        public CaptureForm()
+        public CaptureForm(Settings settings)
         {
+            this.settings = settings;
+            this.stampMode = settings.StampModeEnabled;
             this.FormBorderStyle = FormBorderStyle.None;
             this.WindowState = FormWindowState.Maximized;
             this.DoubleBuffered = true;
             this.Cursor = Cursors.Cross;
             this.TopMost = true;
             this.ShowInTaskbar = false;
+
+            magnifierFont = new Font(this.Font.FontFamily, settings.MagnifierFontSize, FontStyle.Regular);
 
             CaptureScreen();
         }
@@ -49,6 +58,12 @@ namespace ScreenCaptureTool
         {
             if (e.Button == MouseButtons.Left)
             {
+                if (stampMode)
+                {
+                    selectedRegion = GetStampRect();
+                    ConfirmSelection();
+                    return;
+                }
                 activeHandle = GetHandleAtPoint(e.Location);
                 if (activeHandle != HandleType.None)
                 {
@@ -65,7 +80,15 @@ namespace ScreenCaptureTool
             }
             else if (e.Button == MouseButtons.Right)
             {
-                ConfirmSelection();
+                if (stampMode)
+                {
+                    this.DialogResult = DialogResult.Cancel;
+                    this.Close();
+                }
+                else
+                {
+                    ConfirmSelection();
+                }
             }
         }
 
@@ -86,6 +109,7 @@ namespace ScreenCaptureTool
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
+            currentMouse = e.Location;
             if (isSelecting)
             {
                 int x = Math.Min(startPoint.X, e.X);
@@ -102,6 +126,20 @@ namespace ScreenCaptureTool
             {
                 UpdateCursor(e.Location);
             }
+            this.Invalidate();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            if (!stampMode)
+            {
+                base.OnMouseWheel(e);
+                return;
+            }
+
+            float step = Math.Max(1, settings.StampWheelScaleStepPercent) / 100.0f;
+            stampScale = e.Delta > 0 ? stampScale + step : stampScale - step;
+            stampScale = Math.Max(0.2f, Math.Min(5.0f, stampScale));
             this.Invalidate();
         }
 
@@ -216,7 +254,7 @@ namespace ScreenCaptureTool
                 g.FillRegion(overlayBrush, region);
             }
 
-            if (selectedRegion != Rectangle.Empty)
+            if (!stampMode && selectedRegion != Rectangle.Empty)
             {
                 // 绘制选区边框
                 using (Pen pen = new Pen(Color.Cyan, 2))
@@ -229,8 +267,49 @@ namespace ScreenCaptureTool
                 DrawHandles(g);
             }
 
+            if (stampMode)
+            {
+                DrawStampBox(g);
+                DrawStampInfo(g);
+            }
+
             // 绘制放大镜
             DrawMagnifier(g, this.PointToClient(Cursor.Position));
+        }
+
+        private Rectangle GetStampRect()
+        {
+            int width = (int)Math.Round(settings.StampBoxWidth * stampScale);
+            int height = (int)Math.Round(settings.StampBoxHeight * stampScale);
+            int x = currentMouse.X - width / 2;
+            int y = currentMouse.Y - height / 2;
+            Rectangle rect = new Rectangle(x, y, width, height);
+            rect.Intersect(new Rectangle(0, 0, screenSnapshot.Width, screenSnapshot.Height));
+            return rect;
+        }
+
+        private void DrawStampBox(Graphics g)
+        {
+            Rectangle rect = GetStampRect();
+            using (Pen pen = new Pen(Color.Orange, 2))
+            {
+                pen.DashStyle = DashStyle.Dash;
+                g.DrawRectangle(pen, rect);
+            }
+        }
+
+        private void DrawStampInfo(Graphics g)
+        {
+            Rectangle rect = GetStampRect();
+            string info = $"印章: {rect.Width} x {rect.Height}";
+            SizeF size = g.MeasureString(info, magnifierFont);
+            RectangleF box = new RectangleF(10, this.Height - size.Height - 20, size.Width + 10, size.Height + 6);
+            using (SolidBrush bg = new SolidBrush(Color.FromArgb(140, Color.Black)))
+            using (SolidBrush fg = new SolidBrush(Color.White))
+            {
+                g.FillRectangle(bg, box);
+                g.DrawString(info, magnifierFont, fg, box.Left + 5, box.Top + 3);
+            }
         }
 
         private void DrawHandles(Graphics g)
@@ -250,8 +329,8 @@ namespace ScreenCaptureTool
 
         private void DrawMagnifier(Graphics g, Point mousePos)
         {
-            int magSize = 130;
-            int zoom = 7;
+            int magSize = Math.Max(60, settings.MagnifierSize);
+            int zoom = Math.Max(2, settings.MagnifierZoom);
             int sourceSize = magSize / zoom;
             
             // 放大镜位置（偏移鼠标一段距离，避免遮挡）
@@ -287,15 +366,19 @@ namespace ScreenCaptureTool
             int py = Math.Clamp(mousePos.Y, 0, screenSnapshot.Height - 1);
             Color pixelColor = screenSnapshot.GetPixel(px, py);
             string info = $"X: {px}, Y: {py}\nRGB: ({pixelColor.R},{pixelColor.G},{pixelColor.B})";
-            g.DrawString(info, this.Font, Brushes.Yellow, magRect.Left, magRect.Bottom + 5);
+            g.DrawString(info, magnifierFont, Brushes.Yellow, magRect.Left, magRect.Bottom + 5);
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (keyData == Keys.Escape)
+            if (IsCancelHotkey(keyData))
             {
                 this.DialogResult = DialogResult.Cancel;
                 this.Close();
+                return true;
+            }
+            if (HandleWASDMove(keyData))
+            {
                 return true;
             }
             if (keyData == Keys.Enter)
@@ -306,11 +389,47 @@ namespace ScreenCaptureTool
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
+        private bool HandleWASDMove(Keys keyData)
+        {
+            int dx = 0;
+            int dy = 0;
+            switch (keyData)
+            {
+                case Keys.W:
+                    dy = -1; break;
+                case Keys.A:
+                    dx = -1; break;
+                case Keys.S:
+                    dy = 1; break;
+                case Keys.D:
+                    dx = 1; break;
+                default:
+                    return false;
+            }
+
+            System.Drawing.Point pos = Cursor.Position;
+            Rectangle bounds = Screen.PrimaryScreen.Bounds;
+            int newX = Math.Max(bounds.Left, Math.Min(bounds.Right - 1, pos.X + dx));
+            int newY = Math.Max(bounds.Top, Math.Min(bounds.Bottom - 1, pos.Y + dy));
+            Cursor.Position = new System.Drawing.Point(newX, newY);
+            return true;
+        }
+
+        private bool IsCancelHotkey(Keys keyData)
+        {
+            Keys expected = (Keys)settings.CancelHotkeyCode;
+            if ((settings.CancelHotkeyModifiers & 1) != 0) expected |= Keys.Alt;
+            if ((settings.CancelHotkeyModifiers & 2) != 0) expected |= Keys.Control;
+            if ((settings.CancelHotkeyModifiers & 4) != 0) expected |= Keys.Shift;
+            return keyData == expected;
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
                 screenSnapshot?.Dispose();
+                magnifierFont?.Dispose();
             }
             base.Dispose(disposing);
         }
