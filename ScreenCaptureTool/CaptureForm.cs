@@ -19,7 +19,7 @@ namespace ScreenCaptureTool
         private float stampScale = 1.0f;
         private Point currentMouse;
         private Font magnifierFont;
-        private Timer followTimer;
+        private System.Windows.Forms.Timer followTimer;
 
         private enum HandleType
         {
@@ -49,7 +49,7 @@ namespace ScreenCaptureTool
 
         private void StartFollowTimer()
         {
-            followTimer = new Timer();
+            followTimer = new System.Windows.Forms.Timer();
             followTimer.Interval = 16;
             followTimer.Tick += (s, e) =>
             {
