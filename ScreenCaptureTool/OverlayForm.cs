@@ -14,18 +14,30 @@ namespace ScreenCaptureTool
     {
         private static readonly object OpenSync = new object();
         private static readonly List<OverlayForm> OpenOverlays = new List<OverlayForm>();
+        private static int CaptureSequence = 0;
+        private static readonly Color[] MarkerPalette = new[]
+        {
+            Color.Red,
+            Color.DeepSkyBlue,
+            Color.LimeGreen,
+            Color.Gold
+        };
         private Bitmap image;
         private Settings settings;
+        private readonly Color markerColor;
         private System.Drawing.Point lastMousePos;
         private bool isDragging = false;
         private bool isResizing = false;
         private string resizeDir = "";
         private List<MarkerForm> markers = new List<MarkerForm>();
+        private List<Rectangle> markerRects = new List<Rectangle>();
 
         public OverlayForm(Bitmap img, System.Drawing.Rectangle region, Settings settings)
         {
             this.image = img;
             this.settings = settings;
+            int seq = System.Threading.Interlocked.Increment(ref CaptureSequence);
+            markerColor = MarkerPalette[(seq - 1) % MarkerPalette.Length];
             this.FormBorderStyle = FormBorderStyle.None;
             this.StartPosition = FormStartPosition.Manual;
             this.Location = region.Location;
@@ -162,7 +174,7 @@ namespace ScreenCaptureTool
                     if (count == 0)
                     {
                         // 找不到，在当前窗口中心显示红色 X
-                        markers.Add(new MarkerForm(new Rectangle(this.Left + this.Width / 2 - 30, this.Top + this.Height / 2 - 30, 60, 60), "X", settings));
+                        markers.Add(new MarkerForm(new Rectangle(this.Left + this.Width / 2 - 30, this.Top + this.Height / 2 - 30, 60, 60), "X", settings, markerColor));
                     }
                 }
             }
@@ -337,8 +349,33 @@ namespace ScreenCaptureTool
 
         private void AddNumberedMarker(Rectangle rect)
         {
+            if (IsOverlapping(rect))
+            {
+                return;
+            }
             int id = markers.Count + 1;
-            markers.Add(new MarkerForm(rect, id.ToString(), settings));
+            markers.Add(new MarkerForm(rect, id.ToString(), settings, markerColor));
+            markerRects.Add(rect);
+        }
+
+        private bool IsOverlapping(Rectangle rect)
+        {
+            for (int i = 0; i < markerRects.Count; i++)
+            {
+                Rectangle existing = markerRects[i];
+                Rectangle inter = Rectangle.Intersect(existing, rect);
+                if (inter.Width <= 0 || inter.Height <= 0)
+                {
+                    continue;
+                }
+                double interArea = inter.Width * inter.Height;
+                double minArea = Math.Min(existing.Width * existing.Height, rect.Width * rect.Height);
+                if (minArea > 0 && (interArea / minArea) >= 0.6)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static double Distance(Point2f a, Point2f b)
@@ -366,6 +403,7 @@ namespace ScreenCaptureTool
         {
             foreach (var m in markers) m.Close();
             markers.Clear();
+            markerRects.Clear();
         }
 
         protected override void Dispose(bool disposing)
@@ -413,8 +451,9 @@ namespace ScreenCaptureTool
         private static readonly List<MarkerForm> OpenMarkers = new List<MarkerForm>();
         private readonly string text;
         private readonly Settings settings;
+        private readonly Color baseColor;
 
-        public MarkerForm(Rectangle rect, string text, Settings settings)
+        public MarkerForm(Rectangle rect, string text, Settings settings, Color baseColor)
         {
             this.FormBorderStyle = FormBorderStyle.None;
             this.Size = new System.Drawing.Size(Math.Max(20, rect.Width), Math.Max(20, rect.Height));
@@ -427,6 +466,7 @@ namespace ScreenCaptureTool
             this.DoubleBuffered = true;
             this.text = text;
             this.settings = settings;
+            this.baseColor = baseColor;
 
             lock (OpenSync)
             {
@@ -438,7 +478,7 @@ namespace ScreenCaptureTool
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
-            using (Pen pen = new Pen(Color.FromArgb(settings.MarkerFillAlpha, Color.Red), settings.MarkerBorderThickness))
+            using (Pen pen = new Pen(Color.FromArgb(settings.MarkerFillAlpha, baseColor), settings.MarkerBorderThickness))
             using (Font font = new Font("Arial", settings.MarkerFontSize, FontStyle.Bold))
             using (SolidBrush textBrush = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, Color.White)))
             using (StringFormat format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
