@@ -22,61 +22,70 @@ namespace ScreenCaptureTool
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
         private Label lblOpacity;
-        private TrackBar trackOpacity;
+        private TextBox txtOpacity;
         private Label lblBorder;
-        private TrackBar trackBorder;
+        private TextBox txtBorder;
         private Label lblSimilarity;
-        private TrackBar trackSimilarity;
+        private TextBox txtSimilarity;
         private Label lblMarkerBorder;
-        private TrackBar trackMarkerBorder;
+        private TextBox txtMarkerBorder;
         private Label lblMarkerFont;
-        private TrackBar trackMarkerFont;
+        private TextBox txtMarkerFont;
         private Label lblMarkerAlpha;
-        private TrackBar trackMarkerAlpha;
+        private TextBox txtMarkerAlpha;
         private Label lblMagnifierSize;
-        private TrackBar trackMagnifierSize;
+        private TextBox txtMagnifierSize;
         private Label lblMagnifierZoom;
-        private TrackBar trackMagnifierZoom;
+        private TextBox txtMagnifierZoom;
         private Label lblMagnifierFont;
-        private TrackBar trackMagnifierFont;
+        private TextBox txtMagnifierFont;
         private CheckBox chkStampMode;
         private Label lblStampWidth;
-        private TrackBar trackStampWidth;
+        private TextBox txtStampWidth;
         private Label lblStampHeight;
-        private TrackBar trackStampHeight;
+        private TextBox txtStampHeight;
         private Label lblStampStep;
-        private TrackBar trackStampStep;
+        private TextBox txtStampStep;
         private Label lblHotkey;
         private TextBox txtHotkey;
         private Label lblCancelHotkey;
         private TextBox txtCancelHotkey;
         private Button btnApply;
         private Button btnCapture;
+        private Panel settingsPanel;
 
         public MainForm()
         {
             InitializeComponent();
             settings = Settings.Load();
-            SetupTrayIcon();
-            SetupUI();
-            
+
             this.Text = "抓屏软件设置";
-            this.Size = new Size(360, 820);
+            this.Size = new Size(420, 640);
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
             this.StartPosition = FormStartPosition.CenterScreen;
+
+            SetupTrayIcon();
+            SetupUI();
         }
 
         private void SetupUI()
         {
             int y = 20;
+            settingsPanel = new Panel
+            {
+                AutoScroll = true,
+                Location = new Point(0, 0),
+                Size = this.ClientSize,
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
+            };
             
-            lblHotkey = new Label { Text = "启动快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(280, 20) };
+            lblHotkey = new Label { Text = "启动快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(340, 20) };
             y += 25;
-            txtHotkey = new TextBox { 
-                Text = settings.Hotkey, 
-                Location = new Point(20, y), 
-                Size = new Size(280, 25), 
+            txtHotkey = new TextBox {
+                Text = settings.Hotkey,
+                Location = new Point(20, y),
+                Size = new Size(320, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
@@ -84,109 +93,98 @@ namespace ScreenCaptureTool
             txtHotkey.KeyDown += TxtHotkey_KeyDown;
             y += 40;
 
-            lblCancelHotkey = new Label { Text = "取消快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(280, 20) };
+            lblCancelHotkey = new Label { Text = "取消快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(340, 20) };
             y += 25;
             txtCancelHotkey = new TextBox {
                 Text = settings.CancelHotkey,
                 Location = new Point(20, y),
-                Size = new Size(280, 25),
+                Size = new Size(320, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
             };
             txtCancelHotkey.KeyDown += TxtCancelHotkey_KeyDown;
-            y += 40;
+            y += 35;
 
-            lblOpacity = new Label { Text = $"初始透明度: {settings.DefaultOpacity}%", Location = new Point(20, y), Size = new Size(200, 20) };
-            y += 25;
-            trackOpacity = new TrackBar { Minimum = 10, Maximum = 100, Value = settings.DefaultOpacity, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackOpacity.Scroll += (s, e) => lblOpacity.Text = $"初始透明度: {trackOpacity.Value}%";
-            y += 50;
+            lblOpacity = new Label { Text = "初始透明度 (10-100)%:", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtOpacity = new TextBox { Text = settings.DefaultOpacity.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 30;
 
-            lblBorder = new Label { Text = $"边框大小: {settings.BorderSize}px", Location = new Point(20, y), Size = new Size(200, 20) };
-            y += 25;
-            trackBorder = new TrackBar { Minimum = 0, Maximum = 20, Value = settings.BorderSize, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackBorder.Scroll += (s, e) => lblBorder.Text = $"边框大小: {trackBorder.Value}px";
-            y += 60;
+            lblBorder = new Label { Text = "边框大小 (0-20)px:", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtBorder = new TextBox { Text = settings.BorderSize.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 30;
 
-            lblSimilarity = new Label { Text = $"相似度: {settings.SimilarityThresholdPercent}%", Location = new Point(20, y), Size = new Size(200, 20) };
-            y += 25;
-            trackSimilarity = new TrackBar { Minimum = 50, Maximum = 99, Value = settings.SimilarityThresholdPercent, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackSimilarity.Scroll += (s, e) => lblSimilarity.Text = $"相似度: {trackSimilarity.Value}%";
-            y += 60;
+            lblSimilarity = new Label { Text = "相似度 (50-99)%:", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtSimilarity = new TextBox { Text = settings.SimilarityThresholdPercent.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 30;
 
-            lblMarkerBorder = new Label { Text = $"标记框粗细: {settings.MarkerBorderThickness}px", Location = new Point(20, y), Size = new Size(220, 20) };
-            y += 25;
-            trackMarkerBorder = new TrackBar { Minimum = 1, Maximum = 10, Value = settings.MarkerBorderThickness, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackMarkerBorder.Scroll += (s, e) => lblMarkerBorder.Text = $"标记框粗细: {trackMarkerBorder.Value}px";
-            y += 50;
+            lblMarkerBorder = new Label { Text = "标记框粗细 (1-10)px:", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtMarkerBorder = new TextBox { Text = settings.MarkerBorderThickness.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 30;
 
-            lblMarkerFont = new Label { Text = $"标记文字大小: {settings.MarkerFontSize}", Location = new Point(20, y), Size = new Size(220, 20) };
-            y += 25;
-            trackMarkerFont = new TrackBar { Minimum = 10, Maximum = 48, Value = settings.MarkerFontSize, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackMarkerFont.Scroll += (s, e) => lblMarkerFont.Text = $"标记文字大小: {trackMarkerFont.Value}";
-            y += 50;
+            lblMarkerFont = new Label { Text = "标记文字大小 (10-48):", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtMarkerFont = new TextBox { Text = settings.MarkerFontSize.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 30;
 
-            lblMarkerAlpha = new Label { Text = $"标记框透明度: {settings.MarkerFillAlpha}", Location = new Point(20, y), Size = new Size(220, 20) };
-            y += 25;
-            trackMarkerAlpha = new TrackBar { Minimum = 20, Maximum = 200, Value = settings.MarkerFillAlpha, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackMarkerAlpha.Scroll += (s, e) => lblMarkerAlpha.Text = $"标记框透明度: {trackMarkerAlpha.Value}";
-            y += 55;
+            lblMarkerAlpha = new Label { Text = "标记框透明度 (20-200):", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtMarkerAlpha = new TextBox { Text = settings.MarkerFillAlpha.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 30;
 
-            lblMagnifierSize = new Label { Text = $"放大镜大小: {settings.MagnifierSize}px", Location = new Point(20, y), Size = new Size(220, 20) };
-            y += 25;
-            trackMagnifierSize = new TrackBar { Minimum = 80, Maximum = 260, Value = settings.MagnifierSize, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackMagnifierSize.Scroll += (s, e) => lblMagnifierSize.Text = $"放大镜大小: {trackMagnifierSize.Value}px";
-            y += 50;
+            lblMagnifierSize = new Label { Text = "放大镜大小 (80-260)px:", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtMagnifierSize = new TextBox { Text = settings.MagnifierSize.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 30;
 
-            lblMagnifierZoom = new Label { Text = $"放大倍数: {settings.MagnifierZoom}x", Location = new Point(20, y), Size = new Size(220, 20) };
-            y += 25;
-            trackMagnifierZoom = new TrackBar { Minimum = 2, Maximum = 15, Value = settings.MagnifierZoom, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackMagnifierZoom.Scroll += (s, e) => lblMagnifierZoom.Text = $"放大倍数: {trackMagnifierZoom.Value}x";
-            y += 50;
+            lblMagnifierZoom = new Label { Text = "放大倍数 (2-15)x:", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtMagnifierZoom = new TextBox { Text = settings.MagnifierZoom.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 30;
 
-            lblMagnifierFont = new Label { Text = $"放大镜文字大小: {settings.MagnifierFontSize}", Location = new Point(20, y), Size = new Size(240, 20) };
-            y += 25;
-            trackMagnifierFont = new TrackBar { Minimum = 8, Maximum = 20, Value = settings.MagnifierFontSize, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackMagnifierFont.Scroll += (s, e) => lblMagnifierFont.Text = $"放大镜文字大小: {trackMagnifierFont.Value}";
-            y += 55;
+            lblMagnifierFont = new Label { Text = "放大镜文字大小 (8-20):", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtMagnifierFont = new TextBox { Text = settings.MagnifierFontSize.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 35;
 
             chkStampMode = new CheckBox { Text = "启用印章模式", Location = new Point(20, y), Size = new Size(200, 24), Checked = settings.StampModeEnabled };
             y += 30;
 
-            lblStampWidth = new Label { Text = $"印章框宽度: {settings.StampBoxWidth}px", Location = new Point(20, y), Size = new Size(220, 20) };
-            y += 25;
-            trackStampWidth = new TrackBar { Minimum = 40, Maximum = 400, Value = settings.StampBoxWidth, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackStampWidth.Scroll += (s, e) => lblStampWidth.Text = $"印章框宽度: {trackStampWidth.Value}px";
-            y += 50;
+            lblStampWidth = new Label { Text = "印章框宽度 (40-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtStampWidth = new TextBox { Text = settings.StampBoxWidth.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 30;
 
-            lblStampHeight = new Label { Text = $"印章框高度: {settings.StampBoxHeight}px", Location = new Point(20, y), Size = new Size(220, 20) };
-            y += 25;
-            trackStampHeight = new TrackBar { Minimum = 40, Maximum = 400, Value = settings.StampBoxHeight, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackStampHeight.Scroll += (s, e) => lblStampHeight.Text = $"印章框高度: {trackStampHeight.Value}px";
-            y += 50;
+            lblStampHeight = new Label { Text = "印章框高度 (40-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtStampHeight = new TextBox { Text = settings.StampBoxHeight.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 30;
 
-            lblStampStep = new Label { Text = $"滚轮缩放步进: {settings.StampWheelScaleStepPercent}%", Location = new Point(20, y), Size = new Size(240, 20) };
-            y += 25;
-            trackStampStep = new TrackBar { Minimum = 5, Maximum = 30, Value = settings.StampWheelScaleStepPercent, Location = new Point(20, y), Size = new Size(280, 45) };
-            trackStampStep.Scroll += (s, e) => lblStampStep.Text = $"滚轮缩放步进: {trackStampStep.Value}%";
-            y += 60;
+            lblStampStep = new Label { Text = "滚轮缩放步进 (5-30)%:", Location = new Point(20, y), Size = new Size(220, 20) };
+            txtStampStep = new TextBox { Text = settings.StampWheelScaleStepPercent.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            y += 40;
 
             btnApply = new Button { Text = "保存并隐藏", Location = new Point(20, y), Size = new Size(120, 40), BackColor = Color.LightGray };
             btnApply.Click += (s, e) => {
-                settings.DefaultOpacity = trackOpacity.Value;
-                settings.BorderSize = trackBorder.Value;
-                settings.SimilarityThresholdPercent = trackSimilarity.Value;
-                settings.MarkerBorderThickness = trackMarkerBorder.Value;
-                settings.MarkerFontSize = trackMarkerFont.Value;
-                settings.MarkerFillAlpha = trackMarkerAlpha.Value;
-                settings.MagnifierSize = trackMagnifierSize.Value;
-                settings.MagnifierZoom = trackMagnifierZoom.Value;
-                settings.MagnifierFontSize = trackMagnifierFont.Value;
+                if (!TryReadInt("初始透明度", txtOpacity, 10, 100, out int opacity)) return;
+                if (!TryReadInt("边框大小", txtBorder, 0, 20, out int border)) return;
+                if (!TryReadInt("相似度", txtSimilarity, 50, 99, out int similarity)) return;
+                if (!TryReadInt("标记框粗细", txtMarkerBorder, 1, 10, out int markerBorder)) return;
+                if (!TryReadInt("标记文字大小", txtMarkerFont, 10, 48, out int markerFont)) return;
+                if (!TryReadInt("标记框透明度", txtMarkerAlpha, 20, 200, out int markerAlpha)) return;
+                if (!TryReadInt("放大镜大小", txtMagnifierSize, 80, 260, out int magSize)) return;
+                if (!TryReadInt("放大倍数", txtMagnifierZoom, 2, 15, out int magZoom)) return;
+                if (!TryReadInt("放大镜文字大小", txtMagnifierFont, 8, 20, out int magFont)) return;
+                if (!TryReadInt("印章框宽度", txtStampWidth, 40, 400, out int stampWidth)) return;
+                if (!TryReadInt("印章框高度", txtStampHeight, 40, 400, out int stampHeight)) return;
+                if (!TryReadInt("滚轮缩放步进", txtStampStep, 5, 30, out int stampStep)) return;
+
+                settings.DefaultOpacity = opacity;
+                settings.BorderSize = border;
+                settings.SimilarityThresholdPercent = similarity;
+                settings.MarkerBorderThickness = markerBorder;
+                settings.MarkerFontSize = markerFont;
+                settings.MarkerFillAlpha = markerAlpha;
+                settings.MagnifierSize = magSize;
+                settings.MagnifierZoom = magZoom;
+                settings.MagnifierFontSize = magFont;
                 settings.StampModeEnabled = chkStampMode.Checked;
-                settings.StampBoxWidth = trackStampWidth.Value;
-                settings.StampBoxHeight = trackStampHeight.Value;
-                settings.StampWheelScaleStepPercent = trackStampStep.Value;
+                settings.StampBoxWidth = stampWidth;
+                settings.StampBoxHeight = stampHeight;
+                settings.StampWheelScaleStepPercent = stampStep;
                 settings.Save();
                 UpdateHotKey();
                 this.Hide();
@@ -196,37 +194,55 @@ namespace ScreenCaptureTool
             btnCapture = new Button { Text = "立即截图", Location = new Point(180, y), Size = new Size(120, 40), BackColor = Color.LightBlue };
             btnCapture.Click += (s, e) => StartCapture();
 
-            this.Controls.Add(lblHotkey);
-            this.Controls.Add(txtHotkey);
-            this.Controls.Add(lblCancelHotkey);
-            this.Controls.Add(txtCancelHotkey);
-            this.Controls.Add(lblOpacity);
-            this.Controls.Add(trackOpacity);
-            this.Controls.Add(lblBorder);
-            this.Controls.Add(trackBorder);
-            this.Controls.Add(lblSimilarity);
-            this.Controls.Add(trackSimilarity);
-            this.Controls.Add(lblMarkerBorder);
-            this.Controls.Add(trackMarkerBorder);
-            this.Controls.Add(lblMarkerFont);
-            this.Controls.Add(trackMarkerFont);
-            this.Controls.Add(lblMarkerAlpha);
-            this.Controls.Add(trackMarkerAlpha);
-            this.Controls.Add(lblMagnifierSize);
-            this.Controls.Add(trackMagnifierSize);
-            this.Controls.Add(lblMagnifierZoom);
-            this.Controls.Add(trackMagnifierZoom);
-            this.Controls.Add(lblMagnifierFont);
-            this.Controls.Add(trackMagnifierFont);
-            this.Controls.Add(chkStampMode);
-            this.Controls.Add(lblStampWidth);
-            this.Controls.Add(trackStampWidth);
-            this.Controls.Add(lblStampHeight);
-            this.Controls.Add(trackStampHeight);
-            this.Controls.Add(lblStampStep);
-            this.Controls.Add(trackStampStep);
-            this.Controls.Add(btnApply);
-            this.Controls.Add(btnCapture);
+            settingsPanel.Controls.Add(lblHotkey);
+            settingsPanel.Controls.Add(txtHotkey);
+            settingsPanel.Controls.Add(lblCancelHotkey);
+            settingsPanel.Controls.Add(txtCancelHotkey);
+            settingsPanel.Controls.Add(lblOpacity);
+            settingsPanel.Controls.Add(txtOpacity);
+            settingsPanel.Controls.Add(lblBorder);
+            settingsPanel.Controls.Add(txtBorder);
+            settingsPanel.Controls.Add(lblSimilarity);
+            settingsPanel.Controls.Add(txtSimilarity);
+            settingsPanel.Controls.Add(lblMarkerBorder);
+            settingsPanel.Controls.Add(txtMarkerBorder);
+            settingsPanel.Controls.Add(lblMarkerFont);
+            settingsPanel.Controls.Add(txtMarkerFont);
+            settingsPanel.Controls.Add(lblMarkerAlpha);
+            settingsPanel.Controls.Add(txtMarkerAlpha);
+            settingsPanel.Controls.Add(lblMagnifierSize);
+            settingsPanel.Controls.Add(txtMagnifierSize);
+            settingsPanel.Controls.Add(lblMagnifierZoom);
+            settingsPanel.Controls.Add(txtMagnifierZoom);
+            settingsPanel.Controls.Add(lblMagnifierFont);
+            settingsPanel.Controls.Add(txtMagnifierFont);
+            settingsPanel.Controls.Add(chkStampMode);
+            settingsPanel.Controls.Add(lblStampWidth);
+            settingsPanel.Controls.Add(txtStampWidth);
+            settingsPanel.Controls.Add(lblStampHeight);
+            settingsPanel.Controls.Add(txtStampHeight);
+            settingsPanel.Controls.Add(lblStampStep);
+            settingsPanel.Controls.Add(txtStampStep);
+            settingsPanel.Controls.Add(btnApply);
+            settingsPanel.Controls.Add(btnCapture);
+            this.Controls.Add(settingsPanel);
+        }
+
+        private bool TryReadInt(string label, TextBox textBox, int min, int max, out int value)
+        {
+            if (!int.TryParse(textBox.Text.Trim(), out value))
+            {
+                MessageBox.Show($"{label} 请输入数字。");
+                textBox.Focus();
+                return false;
+            }
+            if (value < min || value > max)
+            {
+                MessageBox.Show($"{label} 取值范围 {min}-{max}。");
+                textBox.Focus();
+                return false;
+            }
+            return true;
         }
 
         private void TxtHotkey_KeyDown(object sender, KeyEventArgs e)
