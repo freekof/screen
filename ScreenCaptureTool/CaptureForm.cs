@@ -289,8 +289,11 @@ namespace ScreenCaptureTool
                 DrawStampInfo(g);
             }
 
-            // 绘制放大镜
-            DrawMagnifier(g, this.PointToClient(Cursor.Position));
+            if (!stampMode)
+            {
+                // 绘制放大镜
+                DrawMagnifier(g, this.PointToClient(Cursor.Position));
+            }
         }
 
         private Rectangle GetStampRect()
