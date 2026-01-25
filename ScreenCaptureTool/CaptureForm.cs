@@ -19,6 +19,7 @@ namespace ScreenCaptureTool
         private float stampScale = 1.0f;
         private Point currentMouse;
         private Font magnifierFont;
+        private Timer followTimer;
 
         private enum HandleType
         {
@@ -42,6 +43,20 @@ namespace ScreenCaptureTool
             magnifierFont = new Font(this.Font.FontFamily, settings.MagnifierFontSize, FontStyle.Regular);
 
             CaptureScreen();
+            currentMouse = this.PointToClient(Cursor.Position);
+            StartFollowTimer();
+        }
+
+        private void StartFollowTimer()
+        {
+            followTimer = new Timer();
+            followTimer.Interval = 16;
+            followTimer.Tick += (s, e) =>
+            {
+                currentMouse = this.PointToClient(Cursor.Position);
+                this.Invalidate();
+            };
+            followTimer.Start();
         }
 
         private void CaptureScreen()
@@ -140,6 +155,7 @@ namespace ScreenCaptureTool
             float step = Math.Max(1, settings.StampWheelScaleStepPercent) / 100.0f;
             stampScale = e.Delta > 0 ? stampScale + step : stampScale - step;
             stampScale = Math.Max(0.2f, Math.Min(5.0f, stampScale));
+            currentMouse = e.Location;
             this.Invalidate();
         }
 
@@ -412,6 +428,8 @@ namespace ScreenCaptureTool
             int newX = Math.Max(bounds.Left, Math.Min(bounds.Right - 1, pos.X + dx));
             int newY = Math.Max(bounds.Top, Math.Min(bounds.Bottom - 1, pos.Y + dy));
             Cursor.Position = new System.Drawing.Point(newX, newY);
+            currentMouse = this.PointToClient(Cursor.Position);
+            this.Invalidate();
             return true;
         }
 
@@ -430,6 +448,12 @@ namespace ScreenCaptureTool
             {
                 screenSnapshot?.Dispose();
                 magnifierFont?.Dispose();
+                if (followTimer != null)
+                {
+                    followTimer.Stop();
+                    followTimer.Dispose();
+                    followTimer = null;
+                }
             }
             base.Dispose(disposing);
         }

@@ -438,15 +438,14 @@ namespace ScreenCaptureTool
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
-            using (SolidBrush fill = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, Color.Red)))
-            using (Pen pen = new Pen(Color.Red, settings.MarkerBorderThickness))
+            using (Pen pen = new Pen(Color.FromArgb(settings.MarkerFillAlpha, Color.Red), settings.MarkerBorderThickness))
             using (Font font = new Font("Arial", settings.MarkerFontSize, FontStyle.Bold))
+            using (SolidBrush textBrush = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, Color.White)))
             using (StringFormat format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
                 Rectangle rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
-                g.FillRectangle(fill, rect);
                 g.DrawRectangle(pen, rect);
-                g.DrawString(text, font, Brushes.White, rect, format);
+                g.DrawString(text, font, textBrush, rect, format);
             }
         }
 
