@@ -31,6 +31,7 @@ namespace ScreenCaptureTool
         private string resizeDir = "";
         private List<MarkerForm> markers = new List<MarkerForm>();
         private List<Rectangle> markerRects = new List<Rectangle>();
+        private readonly Size baseSize;
 
         public OverlayForm(Bitmap img, System.Drawing.Rectangle region, Settings settings)
         {
@@ -46,6 +47,8 @@ namespace ScreenCaptureTool
             this.ShowInTaskbar = false;
             this.DoubleBuffered = true;
             this.Opacity = settings.DefaultOpacity / 100.0;
+            this.ContextMenuStrip = new ContextMenuStrip();
+            baseSize = this.Size;
 
             this.MouseDown += OverlayForm_MouseDown;
             this.MouseMove += OverlayForm_MouseMove;
@@ -107,7 +110,14 @@ namespace ScreenCaptureTool
 
             if (isResizing)
             {
-                this.Size = new System.Drawing.Size(Math.Max(20, e.X), Math.Max(20, e.Y));
+                int targetW = Math.Max(20, e.X);
+                int targetH = Math.Max(20, e.Y);
+                double scale = Math.Max(
+                    targetW / (double)Math.Max(1, baseSize.Width),
+                    targetH / (double)Math.Max(1, baseSize.Height));
+                int newW = Math.Max(20, (int)Math.Round(baseSize.Width * scale));
+                int newH = Math.Max(20, (int)Math.Round(baseSize.Height * scale));
+                this.Size = new System.Drawing.Size(newW, newH);
                 this.Invalidate();
             }
             else if (isDragging)
@@ -151,6 +161,17 @@ namespace ScreenCaptureTool
             {
                 CloseAllMarkers();
             }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_CONTEXTMENU = 0x007B;
+            const int WM_RBUTTONUP = 0x0205;
+            if (m.Msg == WM_CONTEXTMENU || m.Msg == WM_RBUTTONUP)
+            {
+                return;
+            }
+            base.WndProc(ref m);
         }
 
         private void StartMatching()
@@ -464,6 +485,7 @@ namespace ScreenCaptureTool
             this.BackColor = Color.Lime;
             this.TransparencyKey = Color.Lime;
             this.DoubleBuffered = true;
+            this.ContextMenuStrip = new ContextMenuStrip();
             this.text = text;
             this.settings = settings;
             this.baseColor = baseColor;
@@ -492,7 +514,8 @@ namespace ScreenCaptureTool
         protected override void WndProc(ref Message m)
         {
             const int WM_CONTEXTMENU = 0x007B;
-            if (m.Msg == WM_CONTEXTMENU)
+            const int WM_RBUTTONUP = 0x0205;
+            if (m.Msg == WM_CONTEXTMENU || m.Msg == WM_RBUTTONUP)
             {
                 return;
             }
