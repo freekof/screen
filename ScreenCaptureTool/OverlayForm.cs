@@ -110,11 +110,9 @@ namespace ScreenCaptureTool
 
             if (isResizing)
             {
-                int targetW = Math.Max(20, e.X);
-                int targetH = Math.Max(20, e.Y);
-                double scale = Math.Max(
-                    targetW / (double)Math.Max(1, baseSize.Width),
-                    targetH / (double)Math.Max(1, baseSize.Height));
+                double scaleX = e.X / (double)Math.Max(1, baseSize.Width);
+                double scaleY = e.Y / (double)Math.Max(1, baseSize.Height);
+                double scale = Math.Max(0.2, Math.Min(5.0, Math.Min(scaleX, scaleY)));
                 int newW = Math.Max(20, (int)Math.Round(baseSize.Width * scale));
                 int newH = Math.Max(20, (int)Math.Round(baseSize.Height * scale));
                 this.Size = new System.Drawing.Size(newW, newH);
@@ -515,7 +513,8 @@ namespace ScreenCaptureTool
         {
             const int WM_CONTEXTMENU = 0x007B;
             const int WM_RBUTTONUP = 0x0205;
-            if (m.Msg == WM_CONTEXTMENU || m.Msg == WM_RBUTTONUP)
+            const int WM_NCRBUTTONDOWN = 0x00A4;
+            if (m.Msg == WM_CONTEXTMENU || m.Msg == WM_RBUTTONUP || m.Msg == WM_NCRBUTTONDOWN)
             {
                 return;
             }
