@@ -31,7 +31,7 @@ namespace ScreenCaptureTool
         private string resizeDir = "";
         private List<MarkerForm> markers = new List<MarkerForm>();
         private List<Rectangle> markerRects = new List<Rectangle>();
-        private readonly Size baseSize;
+        private readonly System.Drawing.Size baseSize;
 
         public OverlayForm(Bitmap img, System.Drawing.Rectangle region, Settings settings)
         {
