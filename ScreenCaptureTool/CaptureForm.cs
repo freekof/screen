@@ -22,6 +22,9 @@ namespace ScreenCaptureTool
         private System.Windows.Forms.Timer followTimer;
         private float scaleX = 1.0f;
         private float scaleY = 1.0f;
+        private float uniformScale = 1.0f;
+        private int offsetX = 0;
+        private int offsetY = 0;
 
         private enum HandleType
         {
@@ -92,8 +95,16 @@ namespace ScreenCaptureTool
             }
             int clientW = Math.Max(1, this.ClientSize.Width);
             int clientH = Math.Max(1, this.ClientSize.Height);
-            scaleX = screenSnapshot.Width / (float)clientW;
-            scaleY = screenSnapshot.Height / (float)clientH;
+            float sx = clientW / (float)screenSnapshot.Width;
+            float sy = clientH / (float)screenSnapshot.Height;
+            float scale = Math.Min(sx, sy);
+            uniformScale = Math.Max(0.0001f, scale);
+            int scaledW = (int)Math.Round(screenSnapshot.Width * uniformScale);
+            int scaledH = (int)Math.Round(screenSnapshot.Height * uniformScale);
+            offsetX = (clientW - scaledW) / 2;
+            offsetY = (clientH - scaledH) / 2;
+            scaleX = 1.0f / uniformScale;
+            scaleY = 1.0f / uniformScale;
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
@@ -331,14 +342,23 @@ namespace ScreenCaptureTool
             int x = currentMouse.X - width / 2;
             int y = currentMouse.Y - height / 2;
             Rectangle rect = new Rectangle(x, y, width, height);
-            rect.Intersect(new Rectangle(0, 0, this.ClientSize.Width, this.ClientSize.Height));
+            rect.Intersect(GetContentRect());
             return rect;
+        }
+
+        private Rectangle GetContentRect()
+        {
+            int contentW = (int)Math.Round(screenSnapshot.Width * uniformScale);
+            int contentH = (int)Math.Round(screenSnapshot.Height * uniformScale);
+            return new Rectangle(offsetX, offsetY, Math.Max(1, contentW), Math.Max(1, contentH));
         }
 
         private Rectangle ScaleToSnapshot(Rectangle rect)
         {
-            int x = (int)Math.Round(rect.X * scaleX);
-            int y = (int)Math.Round(rect.Y * scaleY);
+            Rectangle content = GetContentRect();
+            rect.Intersect(content);
+            int x = (int)Math.Round((rect.X - offsetX) * scaleX);
+            int y = (int)Math.Round((rect.Y - offsetY) * scaleY);
             int w = (int)Math.Round(rect.Width * scaleX);
             int h = (int)Math.Round(rect.Height * scaleY);
             Rectangle scaled = new Rectangle(x, y, w, h);
@@ -400,8 +420,8 @@ namespace ScreenCaptureTool
             if (mousePos.Y + offsetY + magSize > this.Height) offsetY = -magSize - 20;
 
             Rectangle magRect = new Rectangle(mousePos.X + offsetX, mousePos.Y + offsetY, magSize, magSize);
-            int srcCenterX = (int)Math.Round(mousePos.X * scaleX);
-            int srcCenterY = (int)Math.Round(mousePos.Y * scaleY);
+            int srcCenterX = (int)Math.Round((mousePos.X - this.offsetX) * scaleX);
+            int srcCenterY = (int)Math.Round((mousePos.Y - this.offsetY) * scaleY);
             int srcW = Math.Max(1, (int)Math.Round(sourceSize * scaleX));
             int srcH = Math.Max(1, (int)Math.Round(sourceSize * scaleY));
             Rectangle srcRect = new Rectangle(srcCenterX - srcW / 2, srcCenterY - srcH / 2, srcW, srcH);
