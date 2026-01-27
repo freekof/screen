@@ -28,6 +28,7 @@ namespace ScreenCaptureTool
         private System.Drawing.Point lastMousePos;
         private bool isDragging = false;
         private bool isResizing = false;
+        private bool suppressRightClick = false;
         private string resizeDir = "";
         private List<MarkerForm> markers = new List<MarkerForm>();
         private List<Rectangle> markerRects = new List<Rectangle>();
@@ -121,8 +122,9 @@ namespace ScreenCaptureTool
             {
                 if (ModifierKeys == Keys.Control)
                 {
-                    CloseAllMarkers();
-                    this.Close();
+                    suppressRightClick = true;
+                    this.Capture = true;
+                    return;
                 }
             }
         }
@@ -153,6 +155,21 @@ namespace ScreenCaptureTool
         {
             isDragging = false;
             isResizing = false;
+
+            if (e.Button == MouseButtons.Right && suppressRightClick)
+            {
+                var closeTimer = new System.Windows.Forms.Timer { Interval = 50 };
+                closeTimer.Tick += (s, args) =>
+                {
+                    closeTimer.Stop();
+                    closeTimer.Dispose();
+                    suppressRightClick = false;
+                    this.Capture = false;
+                    CloseAllMarkers();
+                    this.Close();
+                };
+                closeTimer.Start();
+            }
         }
 
         private void OverlayForm_MouseWheel(object sender, MouseEventArgs e)
@@ -190,7 +207,8 @@ namespace ScreenCaptureTool
             const int WM_CONTEXTMENU = 0x007B;
             const int WM_NCRBUTTONDOWN = 0x00A4;
             const int WM_NCRBUTTONUP = 0x00A5;
-            if (suppressRightClick && (m.Msg == WM_CONTEXTMENU || m.Msg == WM_NCRBUTTONDOWN || m.Msg == WM_NCRBUTTONUP))
+            if (m.Msg == WM_CONTEXTMENU ||
+                (suppressRightClick && (m.Msg == WM_NCRBUTTONDOWN || m.Msg == WM_NCRBUTTONUP)))
             {
                 return;
             }
