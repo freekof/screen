@@ -49,6 +49,18 @@ namespace ScreenCaptureTool
             StartFollowTimer();
         }
 
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            UpdateScale();
+        }
+
+        protected override void OnClientSizeChanged(EventArgs e)
+        {
+            base.OnClientSizeChanged(e);
+            UpdateScale();
+        }
+
         private void StartFollowTimer()
         {
             followTimer = new System.Windows.Forms.Timer();
@@ -68,6 +80,15 @@ namespace ScreenCaptureTool
             using (Graphics g = Graphics.FromImage(screenSnapshot))
             {
                 g.CopyFromScreen(0, 0, 0, 0, bounds.Size);
+            }
+            UpdateScale();
+        }
+
+        private void UpdateScale()
+        {
+            if (screenSnapshot == null)
+            {
+                return;
             }
             int clientW = Math.Max(1, this.ClientSize.Width);
             int clientH = Math.Max(1, this.ClientSize.Height);
