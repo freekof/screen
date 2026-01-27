@@ -9,6 +9,7 @@ namespace ScreenCaptureTool
     {
         private Bitmap screenSnapshot;
         private Rectangle selectedRegion = Rectangle.Empty;
+        private Rectangle selectedRegionScreen = Rectangle.Empty;
         private Point startPoint;
         private bool isSelecting = false;
         private bool isAdjusting = false;
@@ -31,7 +32,7 @@ namespace ScreenCaptureTool
             None, TopLeft, TopRight, BottomLeft, BottomRight, Top, Bottom, Left, Right, Move
         }
 
-        public Rectangle SelectedRegion => selectedRegion;
+        public Rectangle SelectedRegion => selectedRegionScreen;
         public Bitmap SelectedImage { get; private set; }
 
         public CaptureForm(Settings settings)
@@ -151,6 +152,8 @@ namespace ScreenCaptureTool
             {
                 Rectangle srcRect = ScaleToSnapshot(selectedRegion);
                 SelectedImage = screenSnapshot.Clone(srcRect, screenSnapshot.PixelFormat);
+                System.Drawing.Point screenLoc = this.PointToScreen(selectedRegion.Location);
+                selectedRegionScreen = new Rectangle(screenLoc, new Size(srcRect.Width, srcRect.Height));
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             }
