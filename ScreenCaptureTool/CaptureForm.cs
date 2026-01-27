@@ -119,7 +119,6 @@ namespace ScreenCaptureTool
             {
                 Rectangle srcRect = ScaleToSnapshot(selectedRegion);
                 SelectedImage = screenSnapshot.Clone(srcRect, screenSnapshot.PixelFormat);
-                selectedRegion = srcRect;
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             }
