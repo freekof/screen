@@ -20,6 +20,8 @@ namespace ScreenCaptureTool
         private Point currentMouse;
         private Font magnifierFont;
         private System.Windows.Forms.Timer followTimer;
+        private float scaleX = 1.0f;
+        private float scaleY = 1.0f;
 
         private enum HandleType
         {
@@ -67,6 +69,10 @@ namespace ScreenCaptureTool
             {
                 g.CopyFromScreen(0, 0, 0, 0, bounds.Size);
             }
+            int clientW = Math.Max(1, this.ClientSize.Width);
+            int clientH = Math.Max(1, this.ClientSize.Height);
+            scaleX = screenSnapshot.Width / (float)clientW;
+            scaleY = screenSnapshot.Height / (float)clientH;
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
@@ -111,7 +117,9 @@ namespace ScreenCaptureTool
         {
             if (selectedRegion.Width > 5 && selectedRegion.Height > 5)
             {
-                SelectedImage = screenSnapshot.Clone(selectedRegion, screenSnapshot.PixelFormat);
+                Rectangle srcRect = ScaleToSnapshot(selectedRegion);
+                SelectedImage = screenSnapshot.Clone(srcRect, screenSnapshot.PixelFormat);
+                selectedRegion = srcRect;
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             }
@@ -303,8 +311,21 @@ namespace ScreenCaptureTool
             int x = currentMouse.X - width / 2;
             int y = currentMouse.Y - height / 2;
             Rectangle rect = new Rectangle(x, y, width, height);
-            rect.Intersect(new Rectangle(0, 0, screenSnapshot.Width, screenSnapshot.Height));
+            rect.Intersect(new Rectangle(0, 0, this.ClientSize.Width, this.ClientSize.Height));
             return rect;
+        }
+
+        private Rectangle ScaleToSnapshot(Rectangle rect)
+        {
+            int x = (int)Math.Round(rect.X * scaleX);
+            int y = (int)Math.Round(rect.Y * scaleY);
+            int w = (int)Math.Round(rect.Width * scaleX);
+            int h = (int)Math.Round(rect.Height * scaleY);
+            Rectangle scaled = new Rectangle(x, y, w, h);
+            scaled.Intersect(new Rectangle(0, 0, screenSnapshot.Width, screenSnapshot.Height));
+            if (scaled.Width <= 0) scaled.Width = 1;
+            if (scaled.Height <= 0) scaled.Height = 1;
+            return scaled;
         }
 
         private void DrawStampBox(Graphics g)
@@ -359,7 +380,11 @@ namespace ScreenCaptureTool
             if (mousePos.Y + offsetY + magSize > this.Height) offsetY = -magSize - 20;
 
             Rectangle magRect = new Rectangle(mousePos.X + offsetX, mousePos.Y + offsetY, magSize, magSize);
-            Rectangle srcRect = new Rectangle(mousePos.X - sourceSize / 2, mousePos.Y - sourceSize / 2, sourceSize, sourceSize);
+            int srcCenterX = (int)Math.Round(mousePos.X * scaleX);
+            int srcCenterY = (int)Math.Round(mousePos.Y * scaleY);
+            int srcW = Math.Max(1, (int)Math.Round(sourceSize * scaleX));
+            int srcH = Math.Max(1, (int)Math.Round(sourceSize * scaleY));
+            Rectangle srcRect = new Rectangle(srcCenterX - srcW / 2, srcCenterY - srcH / 2, srcW, srcH);
 
             // 绘制放大镜背景
             g.FillRectangle(Brushes.Black, magRect);
@@ -381,8 +406,8 @@ namespace ScreenCaptureTool
             }
 
             // 显示坐标和颜色信息
-            int px = Math.Clamp(mousePos.X, 0, screenSnapshot.Width - 1);
-            int py = Math.Clamp(mousePos.Y, 0, screenSnapshot.Height - 1);
+            int px = Math.Clamp(srcCenterX, 0, screenSnapshot.Width - 1);
+            int py = Math.Clamp(srcCenterY, 0, screenSnapshot.Height - 1);
             Color pixelColor = screenSnapshot.GetPixel(px, py);
             string info = $"X: {px}, Y: {py}\nRGB: ({pixelColor.R},{pixelColor.G},{pixelColor.B})";
             g.DrawString(info, magnifierFont, Brushes.Yellow, magRect.Left, magRect.Bottom + 5);
