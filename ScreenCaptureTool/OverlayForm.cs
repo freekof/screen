@@ -71,8 +71,31 @@ namespace ScreenCaptureTool
                 g.DrawRectangle(pen, settings.BorderSize / 2, settings.BorderSize / 2, this.Width - settings.BorderSize, this.Height - settings.BorderSize);
             }
             // 画图片
-            g.DrawImage(image, settings.BorderSize, settings.BorderSize, 
-                this.Width - settings.BorderSize * 2, this.Height - settings.BorderSize * 2);
+            Rectangle contentRect = new Rectangle(
+                settings.BorderSize,
+                settings.BorderSize,
+                this.Width - settings.BorderSize * 2,
+                this.Height - settings.BorderSize * 2);
+            if (contentRect.Width > 0 && contentRect.Height > 0)
+            {
+                double scaleX = contentRect.Width / (double)image.Width;
+                double scaleY = contentRect.Height / (double)image.Height;
+                double scale = Math.Min(scaleX, scaleY);
+                int drawW = Math.Max(1, (int)Math.Round(image.Width * scale));
+                int drawH = Math.Max(1, (int)Math.Round(image.Height * scale));
+                int drawX = contentRect.X + (contentRect.Width - drawW) / 2;
+                int drawY = contentRect.Y + (contentRect.Height - drawH) / 2;
+                Rectangle destRect = new Rectangle(drawX, drawY, drawW, drawH);
+
+                if (Math.Abs(scale - 1.0) < 0.001)
+                {
+                    g.DrawImageUnscaled(image, destRect.Location);
+                }
+                else
+                {
+                    g.DrawImage(image, destRect);
+                }
+            }
             
             // 画右下角缩放手柄提示
             using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, Color.Cyan)))
