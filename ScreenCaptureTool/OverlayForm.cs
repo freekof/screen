@@ -45,6 +45,7 @@ namespace ScreenCaptureTool
             this.Size = new System.Drawing.Size(region.Width + settings.BorderSize * 2, region.Height + settings.BorderSize * 2);
             this.TopMost = true;
             this.ShowInTaskbar = false;
+            this.AutoScaleMode = AutoScaleMode.None;
             this.DoubleBuffered = true;
             this.Opacity = settings.DefaultOpacity / 100.0;
             this.ContextMenuStrip = new ContextMenuStrip();
@@ -187,8 +188,9 @@ namespace ScreenCaptureTool
         protected override void WndProc(ref Message m)
         {
             const int WM_CONTEXTMENU = 0x007B;
-            const int WM_RBUTTONUP = 0x0205;
-            if (m.Msg == WM_CONTEXTMENU || m.Msg == WM_RBUTTONUP)
+            const int WM_NCRBUTTONDOWN = 0x00A4;
+            const int WM_NCRBUTTONUP = 0x00A5;
+            if (suppressRightClick && (m.Msg == WM_CONTEXTMENU || m.Msg == WM_NCRBUTTONDOWN || m.Msg == WM_NCRBUTTONUP))
             {
                 return;
             }
