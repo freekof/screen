@@ -64,65 +64,64 @@ namespace ScreenCaptureTool
             }
         }
 
-  protected override void OnPaint(PaintEventArgs e)
-{
-    Graphics g = e.Graphics;
-    // 画边框
-    Rectangle? drawnRect = null;
-    // 画图片
-    Rectangle contentRect = new Rectangle(
-        settings.BorderSize,
-        settings.BorderSize,
-        this.Width - settings.BorderSize * 2,
-        this.Height - settings.BorderSize * 2);
-    if (contentRect.Width > 0 && contentRect.Height > 0)
-    {
-        double scaleX = contentRect.Width / (double)image.Width;
-        double scaleY = contentRect.Height / (double)image.Height;
-        // 修复Bug：限制最大缩放比例为1.0，禁止放大，只允许缩小
-        double scale = Math.Min(Math.Min(scaleX, scaleY), 1.0);
-        int drawW = Math.Max(1, (int)Math.Round(image.Width * scale));
-        int drawH = Math.Max(1, (int)Math.Round(image.Height * scale));
-        int drawX = contentRect.X + (contentRect.Width - drawW) / 2;
-        int drawY = contentRect.Y + (contentRect.Height - drawH) / 2;
-        Rectangle destRect = new Rectangle(drawX, drawY, drawW, drawH);
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            // 画边框
+            Rectangle? drawnRect = null;
+            // 画图片
+            Rectangle contentRect = new Rectangle(
+                settings.BorderSize,
+                settings.BorderSize,
+                this.Width - settings.BorderSize * 2,
+                this.Height - settings.BorderSize * 2);
+            if (contentRect.Width > 0 && contentRect.Height > 0)
+            {
+                double scaleX = contentRect.Width / (double)image.Width;
+                double scaleY = contentRect.Height / (double)image.Height;
+                double scale = Math.Min(scaleX, scaleY);
+                int drawW = Math.Max(1, (int)Math.Round(image.Width * scale));
+                int drawH = Math.Max(1, (int)Math.Round(image.Height * scale));
+                int drawX = contentRect.X + (contentRect.Width - drawW) / 2;
+                int drawY = contentRect.Y + (contentRect.Height - drawH) / 2;
+                Rectangle destRect = new Rectangle(drawX, drawY, drawW, drawH);
 
-        drawnRect = destRect;
-        if (Math.Abs(scale - 1.0) < 0.001)
-        {
-            g.DrawImageUnscaled(image, destRect.Location);
-        }
-        else
-        {
-            g.DrawImage(image, destRect);
-        }
-    }
+                drawnRect = destRect;
+                if (Math.Abs(scale - 1.0) < 0.001)
+                {
+                    g.DrawImageUnscaled(image, destRect.Location);
+                }
+                else
+                {
+                    g.DrawImage(image, destRect);
+                }
+            }
 
-    // 画边框（跟随图像区域，避免拉伸）
-    if (drawnRef.HasValue)
-    {
-        using (Pen pen = new Pen(Color.Cyan, settings.BorderSize))
-        {
-            Rectangle rect = drawnRect.Value;
-            g.DrawRectangle(pen, rect);
+            // 画边框（跟随图像区域，避免拉伸）
+            if (drawnRect.HasValue)
+            {
+                using (Pen pen = new Pen(Color.Cyan, settings.BorderSize))
+                {
+                    Rectangle rect = drawnRect.Value;
+                    g.DrawRectangle(pen, rect);
+                }
+            }
+            
+            // 画右下角缩放手柄提示
+            using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, Color.Cyan)))
+            {
+                if (drawnRect.HasValue)
+                {
+                    Rectangle rect = drawnRect.Value;
+                    System.Drawing.Point[] pts = {
+                        new System.Drawing.Point(rect.Right, rect.Bottom - 10),
+                        new System.Drawing.Point(rect.Right, rect.Bottom),
+                        new System.Drawing.Point(rect.Right - 10, rect.Bottom)
+                    };
+                    g.FillPolygon(brush, pts);
+                }
+            }
         }
-    }
-    
-    // 画右下角缩放手柄提示
-    using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, Color.Cyan)))
-    {
-        if (drawnRect.HasValue)
-        {
-            Rectangle rect = drawnRect.Value;
-            System.Drawing.Point[] pts = {
-                new System.Drawing.Point(rect.Right, rect.Bottom - 10),
-                new System.Drawing.Point(rect.Right, rect.Bottom),
-                new System.Drawing.Point(rect.Right - 10, rect.Bottom)
-            };
-            g.FillPolygon(brush, pts);
-        }
-    }
-}
         private void OverlayForm_MouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
