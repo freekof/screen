@@ -33,6 +33,7 @@ namespace ScreenCaptureTool
         private List<MarkerForm> markers = new List<MarkerForm>();
         private List<Rectangle> markerRects = new List<Rectangle>();
         private readonly System.Drawing.Size baseSize;
+        private float DpiScale => Math.Max(1.0f, this.DeviceDpi / 96f);
 
         public OverlayForm(Bitmap img, System.Drawing.Rectangle region, Settings settings)
         {
@@ -443,8 +444,19 @@ namespace ScreenCaptureTool
                 return;
             }
             int id = markers.Count + 1;
-            markers.Add(new MarkerForm(rect, id.ToString(), settings, markerColor));
-            markerRects.Add(rect);
+            Rectangle scaled = ScaleRectToLogical(rect);
+            markers.Add(new MarkerForm(scaled, id.ToString(), settings, markerColor));
+            markerRects.Add(scaled);
+        }
+
+        private Rectangle ScaleRectToLogical(Rectangle rect)
+        {
+            float scale = DpiScale;
+            int x = (int)Math.Round(rect.X / scale);
+            int y = (int)Math.Round(rect.Y / scale);
+            int w = (int)Math.Round(rect.Width / scale);
+            int h = (int)Math.Round(rect.Height / scale);
+            return new Rectangle(x, y, Math.Max(1, w), Math.Max(1, h));
         }
 
         private bool IsOverlapping(Rectangle rect)
