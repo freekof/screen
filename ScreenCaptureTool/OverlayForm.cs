@@ -64,48 +64,23 @@ namespace ScreenCaptureTool
             }
         }
 
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            Graphics g = e.Graphics;
-            // 画边框
-            Rectangle? drawnRect = null;
-            // 画图片
-            Rectangle contentRect = new Rectangle(
-                settings.BorderSize,
-                settings.BorderSize,
-                this.Width - settings.BorderSize * 2,
-                this.Height - settings.BorderSize * 2);
-            if (contentRect.Width > 0 && contentRect.Height > 0)
-            {
-                double scaleX = contentRect.Width / (double)image.Width;
-                double scaleY = contentRect.Height / (double)image.Height;
-                double scale = Math.Min(scaleX, scaleY);
-                int drawW = Math.Max(1, (int)Math.Round(image.Width * scale));
-                int drawH = Math.Max(1, (int)Math.Round(image.Height * scale));
-                int drawX = contentRect.X + (contentRect.Width - drawW) / 2;
-                int drawY = contentRect.Y + (contentRect.Height - drawH) / 2;
-                Rectangle destRprotected override void OnPaint(PaintEventArgs e)
+  protected override void OnPaint(PaintEventArgs e)
 {
     Graphics g = e.Graphics;
+    // 画边框
     Rectangle? drawnRect = null;
-    
     // 画图片
     Rectangle contentRect = new Rectangle(
         settings.BorderSize,
         settings.BorderSize,
         this.Width - settings.BorderSize * 2,
         this.Height - settings.BorderSize * 2);
-        
-    if (contentRect.Width > 0 && contentRect.Height > 0 && image != null)
+    if (contentRect.Width > 0 && contentRect.Height > 0)
     {
-        // 计算缩放比例，但**禁止放大**（最大为1）
         double scaleX = contentRect.Width / (double)image.Width;
         double scaleY = contentRect.Height / (double)image.Height;
-        double scale = Math.Min(scaleX, scaleY);
-        
-        // ✅ 关键修复：如果 scale > 1（图片比窗口小），则不缩放，保持原尺寸
-        scale = Math.Min(scale, 1.0);
-        
+        // 修复Bug：限制最大缩放比例为1.0，禁止放大，只允许缩小
+        double scale = Math.Min(Math.Min(scaleX, scaleY), 1.0);
         int drawW = Math.Max(1, (int)Math.Round(image.Width * scale));
         int drawH = Math.Max(1, (int)Math.Round(image.Height * scale));
         int drawX = contentRect.X + (contentRect.Width - drawW) / 2;
@@ -124,20 +99,19 @@ namespace ScreenCaptureTool
     }
 
     // 画边框（跟随图像区域，避免拉伸）
-    if (drawnRect.HasValue)
+    if (drawnRef.HasValue)
     {
         using (Pen pen = new Pen(Color.Cyan, settings.BorderSize))
         {
-            g.DrawRectangle(pen, drawnRect.Value);
+            Rectangle rect = drawnRect.Value;
+            g.DrawRectangle(pen, rect);
         }
     }
     
-    // 画右下角缩放手柄提示（可选：只在可缩放时显示）
-    if (drawnRect.HasValue && image != null && 
-        (this.Width - settings.BorderSize * 2 < image.Width || 
-         this.Height - settings.BorderSize * 2 < image.Height))
+    // 画右下角缩放手柄提示
+    using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, Color.Cyan)))
     {
-        using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, Color.Cyan)))
+        if (drawnRect.HasValue)
         {
             Rectangle rect = drawnRect.Value;
             System.Drawing.Point[] pts = {
