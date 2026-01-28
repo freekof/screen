@@ -84,45 +84,71 @@ namespace ScreenCaptureTool
                 int drawH = Math.Max(1, (int)Math.Round(image.Height * scale));
                 int drawX = contentRect.X + (contentRect.Width - drawW) / 2;
                 int drawY = contentRect.Y + (contentRect.Height - drawH) / 2;
-                Rectangle destRect = new Rectangle(drawX, drawY, drawW, drawH);
+                Rectangle destRprotected override void OnPaint(PaintEventArgs e)
+{
+    Graphics g = e.Graphics;
+    Rectangle? drawnRect = null;
+    
+    // 画图片
+    Rectangle contentRect = new Rectangle(
+        settings.BorderSize,
+        settings.BorderSize,
+        this.Width - settings.BorderSize * 2,
+        this.Height - settings.BorderSize * 2);
+        
+    if (contentRect.Width > 0 && contentRect.Height > 0 && image != null)
+    {
+        // 计算缩放比例，但**禁止放大**（最大为1）
+        double scaleX = contentRect.Width / (double)image.Width;
+        double scaleY = contentRect.Height / (double)image.Height;
+        double scale = Math.Min(scaleX, scaleY);
+        
+        // ✅ 关键修复：如果 scale > 1（图片比窗口小），则不缩放，保持原尺寸
+        scale = Math.Min(scale, 1.0);
+        
+        int drawW = Math.Max(1, (int)Math.Round(image.Width * scale));
+        int drawH = Math.Max(1, (int)Math.Round(image.Height * scale));
+        int drawX = contentRect.X + (contentRect.Width - drawW) / 2;
+        int drawY = contentRect.Y + (contentRect.Height - drawH) / 2;
+        Rectangle destRect = new Rectangle(drawX, drawY, drawW, drawH);
 
-                drawnRect = destRect;
-                if (Math.Abs(scale - 1.0) < 0.001)
-                {
-                    g.DrawImageUnscaled(image, destRect.Location);
-                }
-                else
-                {
-                    g.DrawImage(image, destRect);
-                }
-            }
-
-            // 画边框（跟随图像区域，避免拉伸）
-            if (drawnRect.HasValue)
-            {
-                using (Pen pen = new Pen(Color.Cyan, settings.BorderSize))
-                {
-                    Rectangle rect = drawnRect.Value;
-                    g.DrawRectangle(pen, rect);
-                }
-            }
-            
-            // 画右下角缩放手柄提示
-            using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, Color.Cyan)))
-            {
-                if (drawnRect.HasValue)
-                {
-                    Rectangle rect = drawnRect.Value;
-                    System.Drawing.Point[] pts = {
-                        new System.Drawing.Point(rect.Right, rect.Bottom - 10),
-                        new System.Drawing.Point(rect.Right, rect.Bottom),
-                        new System.Drawing.Point(rect.Right - 10, rect.Bottom)
-                    };
-                    g.FillPolygon(brush, pts);
-                }
-            }
+        drawnRect = destRect;
+        if (Math.Abs(scale - 1.0) < 0.001)
+        {
+            g.DrawImageUnscaled(image, destRect.Location);
         }
+        else
+        {
+            g.DrawImage(image, destRect);
+        }
+    }
 
+    // 画边框（跟随图像区域，避免拉伸）
+    if (drawnRect.HasValue)
+    {
+        using (Pen pen = new Pen(Color.Cyan, settings.BorderSize))
+        {
+            g.DrawRectangle(pen, drawnRect.Value);
+        }
+    }
+    
+    // 画右下角缩放手柄提示（可选：只在可缩放时显示）
+    if (drawnRect.HasValue && image != null && 
+        (this.Width - settings.BorderSize * 2 < image.Width || 
+         this.Height - settings.BorderSize * 2 < image.Height))
+    {
+        using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, Color.Cyan)))
+        {
+            Rectangle rect = drawnRect.Value;
+            System.Drawing.Point[] pts = {
+                new System.Drawing.Point(rect.Right, rect.Bottom - 10),
+                new System.Drawing.Point(rect.Right, rect.Bottom),
+                new System.Drawing.Point(rect.Right - 10, rect.Bottom)
+            };
+            g.FillPolygon(brush, pts);
+        }
+    }
+}
         private void OverlayForm_MouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
