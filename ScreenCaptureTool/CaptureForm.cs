@@ -26,6 +26,7 @@ namespace ScreenCaptureTool
         private float uniformScale = 1.0f;
         private int offsetX = 0;
         private int offsetY = 0;
+        private Rectangle screenBounds;
 
         private enum HandleType
         {
@@ -40,7 +41,11 @@ namespace ScreenCaptureTool
             this.settings = settings;
             this.stampMode = settings.StampModeEnabled;
             this.FormBorderStyle = FormBorderStyle.None;
-            this.WindowState = FormWindowState.Maximized;
+            this.AutoScaleMode = AutoScaleMode.None;
+            this.StartPosition = FormStartPosition.Manual;
+            screenBounds = Screen.PrimaryScreen.Bounds;
+            this.Bounds = screenBounds;
+            this.WindowState = FormWindowState.Normal;
             this.DoubleBuffered = true;
             this.Cursor = Cursors.Cross;
             this.TopMost = true;
@@ -79,11 +84,10 @@ namespace ScreenCaptureTool
 
         private void CaptureScreen()
         {
-            Rectangle bounds = Screen.PrimaryScreen.Bounds;
-            screenSnapshot = new Bitmap(bounds.Width, bounds.Height);
+            screenSnapshot = new Bitmap(screenBounds.Width, screenBounds.Height);
             using (Graphics g = Graphics.FromImage(screenSnapshot))
             {
-                g.CopyFromScreen(0, 0, 0, 0, bounds.Size);
+                g.CopyFromScreen(screenBounds.Left, screenBounds.Top, 0, 0, screenBounds.Size);
             }
             UpdateScale();
         }
