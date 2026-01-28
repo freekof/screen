@@ -68,10 +68,7 @@ namespace ScreenCaptureTool
         {
             Graphics g = e.Graphics;
             // 画边框
-            using (Pen pen = new Pen(Color.Cyan, settings.BorderSize))
-            {
-                g.DrawRectangle(pen, settings.BorderSize / 2, settings.BorderSize / 2, this.Width - settings.BorderSize, this.Height - settings.BorderSize);
-            }
+            Rectangle? drawnRect = null;
             // 画图片
             Rectangle contentRect = new Rectangle(
                 settings.BorderSize,
@@ -89,6 +86,7 @@ namespace ScreenCaptureTool
                 int drawY = contentRect.Y + (contentRect.Height - drawH) / 2;
                 Rectangle destRect = new Rectangle(drawX, drawY, drawW, drawH);
 
+                drawnRect = destRect;
                 if (Math.Abs(scale - 1.0) < 0.001)
                 {
                     g.DrawImageUnscaled(image, destRect.Location);
@@ -98,16 +96,30 @@ namespace ScreenCaptureTool
                     g.DrawImage(image, destRect);
                 }
             }
+
+            // 画边框（跟随图像区域，避免拉伸）
+            if (drawnRect.HasValue)
+            {
+                using (Pen pen = new Pen(Color.Cyan, settings.BorderSize))
+                {
+                    Rectangle rect = drawnRect.Value;
+                    g.DrawRectangle(pen, rect);
+                }
+            }
             
             // 画右下角缩放手柄提示
             using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, Color.Cyan)))
             {
-                System.Drawing.Point[] pts = {
-                    new System.Drawing.Point(this.Width, this.Height - 10),
-                    new System.Drawing.Point(this.Width, this.Height),
-                    new System.Drawing.Point(this.Width - 10, this.Height)
-                };
-                g.FillPolygon(brush, pts);
+                if (drawnRect.HasValue)
+                {
+                    Rectangle rect = drawnRect.Value;
+                    System.Drawing.Point[] pts = {
+                        new System.Drawing.Point(rect.Right, rect.Bottom - 10),
+                        new System.Drawing.Point(rect.Right, rect.Bottom),
+                        new System.Drawing.Point(rect.Right - 10, rect.Bottom)
+                    };
+                    g.FillPolygon(brush, pts);
+                }
             }
         }
 
@@ -191,6 +203,22 @@ namespace ScreenCaptureTool
             if (IsCancelHotkey(e.KeyData))
             {
                 CloseAllOpen();
+            }
+            else if (e.KeyCode == Keys.Up)
+            {
+                this.Top -= 1;
+            }
+            else if (e.KeyCode == Keys.Down)
+            {
+                this.Top += 1;
+            }
+            else if (e.KeyCode == Keys.Left)
+            {
+                this.Left -= 1;
+            }
+            else if (e.KeyCode == Keys.Right)
+            {
+                this.Left += 1;
             }
             else if (e.KeyCode == Keys.Enter)
             {
