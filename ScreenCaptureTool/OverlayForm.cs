@@ -43,7 +43,7 @@ namespace ScreenCaptureTool
             this.FormBorderStyle = FormBorderStyle.None;
             this.StartPosition = FormStartPosition.Manual;
             this.Location = region.Location;
-            this.Size = new System.Drawing.Size(region.Width + settings.BorderSize * 2, region.Height + settings.BorderSize * 2);
+            this.Size = new System.Drawing.Size(image.Width + settings.BorderSize * 2, image.Height + settings.BorderSize * 2);
             this.TopMost = true;
             this.ShowInTaskbar = false;
             this.AutoScaleMode = AutoScaleMode.None;
