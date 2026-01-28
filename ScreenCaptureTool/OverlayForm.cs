@@ -551,6 +551,7 @@ namespace ScreenCaptureTool
             this.StartPosition = FormStartPosition.Manual;
             this.TopMost = true;
             this.ShowInTaskbar = false;
+            this.AutoScaleMode = AutoScaleMode.None;
             this.BackColor = Color.Lime;
             this.TransparencyKey = Color.Lime;
             this.DoubleBuffered = true;
@@ -569,6 +570,7 @@ namespace ScreenCaptureTool
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
+            g.PageUnit = GraphicsUnit.Pixel;
             using (Pen pen = new Pen(Color.FromArgb(settings.MarkerFillAlpha, baseColor), settings.MarkerBorderThickness))
             using (Font font = new Font("Arial", settings.MarkerFontSize, FontStyle.Bold))
             using (SolidBrush textBrush = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, Color.White)))
