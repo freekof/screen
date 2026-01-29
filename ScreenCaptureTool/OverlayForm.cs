@@ -35,6 +35,7 @@ namespace ScreenCaptureTool
         private List<Rectangle> markerRects = new List<Rectangle>();
         private readonly System.Drawing.Size baseSize;
         private float DpiScale => Math.Max(1.0f, this.DeviceDpi / 96f);
+        private bool userResized = false;
 
         public OverlayForm(Bitmap img, System.Drawing.Rectangle region, Settings settings)
         {
@@ -82,6 +83,10 @@ namespace ScreenCaptureTool
                 double scaleX = contentRect.Width / (double)image.Width;
                 double scaleY = contentRect.Height / (double)image.Height;
                 double scale = Math.Min(scaleX, scaleY);
+                if (!userResized && scale > 1.0)
+                {
+                    scale = 1.0;
+                }
                 int drawW = Math.Max(1, (int)Math.Round(image.Width * scale));
                 int drawH = Math.Max(1, (int)Math.Round(image.Height * scale));
                 int drawX = contentRect.X + (contentRect.Width - drawW) / 2;
@@ -155,6 +160,7 @@ namespace ScreenCaptureTool
                 int newW = Math.Max(20, (int)Math.Round(baseSize.Width * scale));
                 int newH = Math.Max(20, (int)Math.Round(baseSize.Height * scale));
                 this.Size = new System.Drawing.Size(newW, newH);
+                userResized = true;
                 this.Invalidate();
             }
             else if (isDragging)
@@ -191,6 +197,7 @@ namespace ScreenCaptureTool
             {
                 float ratio = e.Delta > 0 ? 1.1f : 0.9f;
                 this.Size = new System.Drawing.Size((int)(this.Width * ratio), (int)(this.Height * ratio));
+                userResized = true;
             }
             else
             {
