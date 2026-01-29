@@ -145,11 +145,11 @@ namespace ScreenCaptureTool
             chkStampMode = new CheckBox { Text = "启用印章模式", Location = new Point(20, y), Size = new Size(200, 24), Checked = settings.StampModeEnabled };
             y += 30;
 
-            lblStampWidth = new Label { Text = "印章框宽度 (40-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
+            lblStampWidth = new Label { Text = "印章框宽度 (20-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
             txtStampWidth = new TextBox { Text = settings.StampBoxWidth.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
             y += 30;
 
-            lblStampHeight = new Label { Text = "印章框高度 (40-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
+            lblStampHeight = new Label { Text = "印章框高度 (20-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
             txtStampHeight = new TextBox { Text = settings.StampBoxHeight.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
             y += 30;
 
@@ -168,8 +168,8 @@ namespace ScreenCaptureTool
                 if (!TryReadInt("放大镜大小", txtMagnifierSize, 80, 260, out int magSize)) return;
                 if (!TryReadInt("放大倍数", txtMagnifierZoom, 2, 15, out int magZoom)) return;
                 if (!TryReadInt("放大镜文字大小", txtMagnifierFont, 8, 20, out int magFont)) return;
-                if (!TryReadInt("印章框宽度", txtStampWidth, 40, 400, out int stampWidth)) return;
-                if (!TryReadInt("印章框高度", txtStampHeight, 40, 400, out int stampHeight)) return;
+                if (!TryReadInt("印章框宽度", txtStampWidth, 20, 400, out int stampWidth)) return;
+                if (!TryReadInt("印章框高度", txtStampHeight, 20, 400, out int stampHeight)) return;
                 if (!TryReadInt("滚轮缩放步进", txtStampStep, 5, 30, out int stampStep)) return;
 
                 settings.DefaultOpacity = opacity;
