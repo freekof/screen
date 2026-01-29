@@ -30,7 +30,8 @@ namespace ScreenCaptureTool
         private bool isResizing = false;
         private bool suppressRightClick = false;
         private string resizeDir = "";
-        private List<MarkerForm> markers = new List<MarkerForm>();
+        private MarkerOverlayForm markerOverlay;
+        private int markerCount = 0;
         private List<Rectangle> markerRects = new List<Rectangle>();
         private readonly System.Drawing.Size baseSize;
         private float DpiScale => Math.Max(1.0f, this.DeviceDpi / 96f);
@@ -264,7 +265,9 @@ namespace ScreenCaptureTool
                     if (count == 0)
                     {
                         // 找不到，在当前窗口中心显示红色 X
-                        markers.Add(new MarkerForm(new Rectangle(this.Left + this.Width / 2 - 30, this.Top + this.Height / 2 - 30, 60, 60), "X", settings, markerColor));
+                        Rectangle rect = new Rectangle(this.Left + this.Width / 2 - 30, this.Top + this.Height / 2 - 30, 60, 60);
+                        EnsureMarkerOverlay();
+                        markerOverlay.AddMarker(rect, "X");
                     }
                 }
             }
@@ -443,10 +446,10 @@ namespace ScreenCaptureTool
             {
                 return;
             }
-            int id = markers.Count + 1;
-            Rectangle scaled = ScaleRectToLogical(rect);
-            markers.Add(new MarkerForm(scaled, id.ToString(), settings, markerColor));
-            markerRects.Add(scaled);
+            markerCount++;
+            EnsureMarkerOverlay();
+            markerOverlay.AddMarker(rect, markerCount.ToString());
+            markerRects.Add(rect);
         }
 
         private Rectangle ScaleRectToLogical(Rectangle rect)
@@ -502,8 +505,12 @@ namespace ScreenCaptureTool
 
         private void CloseAllMarkers()
         {
-            foreach (var m in markers) m.Close();
-            markers.Clear();
+            if (markerOverlay != null)
+            {
+                markerOverlay.Close();
+                markerOverlay = null;
+            }
+            markerCount = 0;
             markerRects.Clear();
         }
 
@@ -533,7 +540,6 @@ namespace ScreenCaptureTool
                 overlay.CloseAllMarkers();
                 overlay.Close();
             }
-            MarkerForm.CloseAllOpen();
         }
 
         private bool IsCancelHotkey(Keys keyData)
@@ -544,22 +550,30 @@ namespace ScreenCaptureTool
             if ((settings.CancelHotkeyModifiers & 4) != 0) expected |= Keys.Shift;
             return keyData == expected;
         }
+
+        private void EnsureMarkerOverlay()
+        {
+            if (markerOverlay == null || markerOverlay.IsDisposed)
+            {
+                markerOverlay = new MarkerOverlayForm(settings, markerColor);
+                markerOverlay.Show();
+            }
+        }
     }
 
-    public class MarkerForm : Form
+    public class MarkerOverlayForm : Form
     {
-        private static readonly object OpenSync = new object();
-        private static readonly List<MarkerForm> OpenMarkers = new List<MarkerForm>();
-        private readonly string text;
         private readonly Settings settings;
         private readonly Color baseColor;
+        private readonly List<(Rectangle Rect, string Text)> markers = new List<(Rectangle, string)>();
 
-        public MarkerForm(Rectangle rect, string text, Settings settings, Color baseColor)
+        public MarkerOverlayForm(Settings settings, Color baseColor)
         {
+            this.settings = settings;
+            this.baseColor = baseColor;
             this.FormBorderStyle = FormBorderStyle.None;
-            this.Size = new System.Drawing.Size(Math.Max(20, rect.Width), Math.Max(20, rect.Height));
-            this.Location = new System.Drawing.Point(rect.Left, rect.Top);
             this.StartPosition = FormStartPosition.Manual;
+            this.Bounds = Screen.PrimaryScreen.Bounds;
             this.TopMost = true;
             this.ShowInTaskbar = false;
             this.AutoScaleMode = AutoScaleMode.None;
@@ -567,15 +581,22 @@ namespace ScreenCaptureTool
             this.TransparencyKey = Color.Lime;
             this.DoubleBuffered = true;
             this.ContextMenuStrip = new ContextMenuStrip();
-            this.text = text;
-            this.settings = settings;
-            this.baseColor = baseColor;
+        }
 
-            lock (OpenSync)
+        protected override CreateParams CreateParams
+        {
+            get
             {
-                OpenMarkers.Add(this);
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x20; // WS_EX_TRANSPARENT for click-through
+                return cp;
             }
-            this.Show();
+        }
+
+        public void AddMarker(Rectangle rect, string text)
+        {
+            markers.Add((rect, text));
+            Invalidate();
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -587,44 +608,23 @@ namespace ScreenCaptureTool
             using (SolidBrush textBrush = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, Color.White)))
             using (StringFormat format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
-                Rectangle rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
-                g.DrawRectangle(pen, rect);
-                g.DrawString(text, font, textBrush, rect, format);
+                foreach (var marker in markers)
+                {
+                    Rectangle rect = marker.Rect;
+                    g.DrawRectangle(pen, rect);
+                    g.DrawString(marker.Text, font, textBrush, rect, format);
+                }
             }
         }
 
         protected override void WndProc(ref Message m)
         {
             const int WM_CONTEXTMENU = 0x007B;
-            const int WM_RBUTTONUP = 0x0205;
-            const int WM_NCRBUTTONDOWN = 0x00A4;
-            if (m.Msg == WM_CONTEXTMENU || m.Msg == WM_RBUTTONUP || m.Msg == WM_NCRBUTTONDOWN)
+            if (m.Msg == WM_CONTEXTMENU)
             {
                 return;
             }
             base.WndProc(ref m);
-        }
-
-        protected override void OnClosed(EventArgs e)
-        {
-            lock (OpenSync)
-            {
-                OpenMarkers.Remove(this);
-            }
-            base.OnClosed(e);
-        }
-
-        public static void CloseAllOpen()
-        {
-            List<MarkerForm> markers;
-            lock (OpenSync)
-            {
-                markers = new List<MarkerForm>(OpenMarkers);
-            }
-            foreach (var marker in markers)
-            {
-                marker.Close();
-            }
         }
     }
 }
