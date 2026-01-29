@@ -33,9 +33,45 @@ namespace ScreenCaptureTool
         private MarkerOverlayForm markerOverlay;
         private int markerCount = 0;
         private List<Rectangle> markerRects = new List<Rectangle>();
-        private readonly System.Drawing.Size baseSize;
+        private const int MinImageScale = 20;
+        private const int MaxImageScale = 500;
+        private int imageScale = 100;
         private float DpiScale => Math.Max(1.0f, this.DeviceDpi / 96f);
-        private bool userResized = false;
+
+        private int ImageScale
+        {
+            get { return imageScale; }
+            set
+            {
+                int newScale = Math.Max(MinImageScale, Math.Min(MaxImageScale, value));
+                if (imageScale != newScale)
+                {
+                    imageScale = newScale;
+                    AutoSizeForm();
+                }
+            }
+        }
+
+        private System.Drawing.Size ImageSize
+        {
+            get
+            {
+                float scale = ImageScale / 100f;
+                return new System.Drawing.Size(
+                    Math.Max(1, (int)Math.Round(image.Width * scale)),
+                    Math.Max(1, (int)Math.Round(image.Height * scale)));
+            }
+        }
+
+        private System.Drawing.Size FormSize
+        {
+            get
+            {
+                int border = settings.BorderSize * 2;
+                System.Drawing.Size size = ImageSize;
+                return new System.Drawing.Size(size.Width + border, size.Height + border);
+            }
+        }
 
         public OverlayForm(Bitmap img, System.Drawing.Rectangle region, Settings settings)
         {
@@ -46,14 +82,14 @@ namespace ScreenCaptureTool
             this.FormBorderStyle = FormBorderStyle.None;
             this.StartPosition = FormStartPosition.Manual;
             this.Location = region.Location;
-            this.Size = new System.Drawing.Size(image.Width + settings.BorderSize * 2, image.Height + settings.BorderSize * 2);
+            ImageScale = 100;
+            this.Size = FormSize;
             this.TopMost = true;
             this.ShowInTaskbar = false;
             this.AutoScaleMode = AutoScaleMode.None;
             this.DoubleBuffered = true;
             this.Opacity = settings.DefaultOpacity / 100.0;
             this.ContextMenuStrip = new ContextMenuStrip();
-            baseSize = this.Size;
 
             this.MouseDown += OverlayForm_MouseDown;
             this.MouseMove += OverlayForm_MouseMove;
@@ -67,39 +103,35 @@ namespace ScreenCaptureTool
             }
         }
 
+        private void AutoSizeForm()
+        {
+            System.Drawing.Size newSize = FormSize;
+            if (this.Size != newSize)
+            {
+                this.Size = newSize;
+            }
+            this.Invalidate();
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             Graphics g = e.Graphics;
             // 画边框
             Rectangle? drawnRect = null;
             // 画图片
-            Rectangle contentRect = new Rectangle(
-                settings.BorderSize,
-                settings.BorderSize,
-                this.Width - settings.BorderSize * 2,
-                this.Height - settings.BorderSize * 2);
-            if (contentRect.Width > 0 && contentRect.Height > 0)
+            System.Drawing.Size drawSize = ImageSize;
+            if (drawSize.Width > 0 && drawSize.Height > 0)
             {
-                double scaleX = contentRect.Width / (double)image.Width;
-                double scaleY = contentRect.Height / (double)image.Height;
-                double scale = Math.Min(scaleX, scaleY);
-                if (!userResized && scale > 1.0)
-                {
-                    scale = 1.0;
-                }
-                int drawW = Math.Max(1, (int)Math.Round(image.Width * scale));
-                int drawH = Math.Max(1, (int)Math.Round(image.Height * scale));
-                int drawX = contentRect.X + (contentRect.Width - drawW) / 2;
-                int drawY = contentRect.Y + (contentRect.Height - drawH) / 2;
-                Rectangle destRect = new Rectangle(drawX, drawY, drawW, drawH);
-
+                Rectangle destRect = new Rectangle(settings.BorderSize, settings.BorderSize, drawSize.Width, drawSize.Height);
                 drawnRect = destRect;
-                if (Math.Abs(scale - 1.0) < 0.001)
+                if (ImageScale == 100)
                 {
-                    g.DrawImageUnscaled(image, destRect.Location);
+                    g.InterpolationMode = InterpolationMode.NearestNeighbor;
+                    g.DrawImage(image, new Rectangle(destRect.Location, image.Size));
                 }
                 else
                 {
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                     g.DrawImage(image, destRect);
                 }
             }
@@ -154,14 +186,13 @@ namespace ScreenCaptureTool
 
             if (isResizing)
             {
-                double scaleX = e.X / (double)Math.Max(1, baseSize.Width);
-                double scaleY = e.Y / (double)Math.Max(1, baseSize.Height);
-                double scale = Math.Max(0.2, Math.Min(5.0, Math.Min(scaleX, scaleY)));
-                int newW = Math.Max(20, (int)Math.Round(baseSize.Width * scale));
-                int newH = Math.Max(20, (int)Math.Round(baseSize.Height * scale));
-                this.Size = new System.Drawing.Size(newW, newH);
-                userResized = true;
-                this.Invalidate();
+                int border = settings.BorderSize * 2;
+                int targetW = Math.Max(1, e.X - border);
+                int targetH = Math.Max(1, e.Y - border);
+                double scaleX = targetW / (double)Math.Max(1, image.Width);
+                double scaleY = targetH / (double)Math.Max(1, image.Height);
+                int targetScale = (int)Math.Round(Math.Min(scaleX, scaleY) * 100.0);
+                ImageScale = targetScale;
             }
             else if (isDragging)
             {
@@ -195,9 +226,8 @@ namespace ScreenCaptureTool
         {
             if (ModifierKeys == Keys.Control)
             {
-                float ratio = e.Delta > 0 ? 1.1f : 0.9f;
-                this.Size = new System.Drawing.Size((int)(this.Width * ratio), (int)(this.Height * ratio));
-                userResized = true;
+                int delta = e.Delta > 0 ? 10 : -10;
+                ImageScale += delta;
             }
             else
             {
