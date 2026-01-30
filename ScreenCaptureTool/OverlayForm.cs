@@ -79,7 +79,13 @@ namespace ScreenCaptureTool
             this.settings = settings;
             int seq = System.Threading.Interlocked.Increment(ref CaptureSequence);
             markerColor = MarkerPalette[(seq - 1) % MarkerPalette.Length];
+            this.AutoScaleMode = AutoScaleMode.None;
+            this.AutoSize = false;
             this.FormBorderStyle = FormBorderStyle.None;
+            this.ControlBox = false;
+            this.MinimizeBox = false;
+            this.MaximizeBox = false;
+            this.ShowIcon = false;
             this.StartPosition = FormStartPosition.Manual;
             this.Location = region.Location;
             ImageScale = 100;
@@ -87,6 +93,7 @@ namespace ScreenCaptureTool
             this.TopMost = true;
             this.ShowInTaskbar = false;
             this.AutoScaleMode = AutoScaleMode.None;
+            this.WindowState = FormWindowState.Normal;
             this.DoubleBuffered = true;
             this.Opacity = settings.DefaultOpacity / 100.0;
             this.ContextMenuStrip = new ContextMenuStrip();
