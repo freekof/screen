@@ -110,6 +110,19 @@ namespace ScreenCaptureTool
             }
         }
 
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x00000080; // WS_EX_TOOLWINDOW
+                cp.Style &= ~0x00080000; // WS_SYSMENU
+                cp.Style &= ~0x00020000; // WS_MINIMIZEBOX
+                cp.Style &= ~0x00010000; // WS_MAXIMIZEBOX
+                return cp;
+            }
+        }
+
         private void AutoSizeForm()
         {
             System.Drawing.Size newSize = FormSize;
