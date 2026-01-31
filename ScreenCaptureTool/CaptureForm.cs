@@ -444,12 +444,13 @@ namespace ScreenCaptureTool
             }
 
             // 绘制放大镜边框和十字准星
-            using (Pen pen = new Pen(Color.White, 1))
+            using (Pen borderPen = new Pen(Color.White, 1))
+            using (Pen crossPen = new Pen(Color.FromArgb(128, Color.Black), 1))
             {
-                g.DrawRectangle(pen, magRect);
+                g.DrawRectangle(borderPen, magRect);
                 // 十字准星
-                g.DrawLine(pen, magRect.Left + magSize / 2, magRect.Top, magRect.Left + magSize / 2, magRect.Bottom);
-                g.DrawLine(pen, magRect.Left, magRect.Top + magSize / 2, magRect.Right, magRect.Top + magSize / 2);
+                g.DrawLine(crossPen, magRect.Left + magSize / 2, magRect.Top, magRect.Left + magSize / 2, magRect.Bottom);
+                g.DrawLine(crossPen, magRect.Left, magRect.Top + magSize / 2, magRect.Right, magRect.Top + magSize / 2);
             }
 
             // 显示坐标和颜色信息
