@@ -14,6 +14,7 @@ namespace ScreenCaptureTool
         private Settings settings;
         private const int HOTKEY_ID = 1;
         private const int CANCEL_HOTKEY_ID = 2;
+        private const int STAMP_HOTKEY_ID = 3;
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -39,7 +40,8 @@ namespace ScreenCaptureTool
         private TextBox txtMagnifierZoom;
         private Label lblMagnifierFont;
         private TextBox txtMagnifierFont;
-        private CheckBox chkStampMode;
+        private Label lblStampHotkey;
+        private TextBox txtStampHotkey;
         private Label lblStampWidth;
         private TextBox txtStampWidth;
         private Label lblStampHeight;
@@ -106,6 +108,19 @@ namespace ScreenCaptureTool
             txtCancelHotkey.KeyDown += TxtCancelHotkey_KeyDown;
             y += 35;
 
+            lblStampHotkey = new Label { Text = "印章模式快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(340, 20) };
+            y += 25;
+            txtStampHotkey = new TextBox {
+                Text = settings.StampHotkey,
+                Location = new Point(20, y),
+                Size = new Size(320, 25),
+                ReadOnly = true,
+                BackColor = Color.White,
+                TextAlign = HorizontalAlignment.Center
+            };
+            txtStampHotkey.KeyDown += TxtStampHotkey_KeyDown;
+            y += 35;
+
             lblOpacity = new Label { Text = "初始透明度 (10-100)%:", Location = new Point(20, y), Size = new Size(220, 20) };
             txtOpacity = new TextBox { Text = settings.DefaultOpacity.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
             y += 30;
@@ -141,9 +156,6 @@ namespace ScreenCaptureTool
             lblMagnifierFont = new Label { Text = "放大镜文字大小 (8-20):", Location = new Point(20, y), Size = new Size(220, 20) };
             txtMagnifierFont = new TextBox { Text = settings.MagnifierFontSize.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
             y += 35;
-
-            chkStampMode = new CheckBox { Text = "启用印章模式", Location = new Point(20, y), Size = new Size(200, 24), Checked = settings.StampModeEnabled };
-            y += 30;
 
             lblStampWidth = new Label { Text = "印章框宽度 (20-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
             txtStampWidth = new TextBox { Text = settings.StampBoxWidth.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
@@ -181,7 +193,6 @@ namespace ScreenCaptureTool
                 settings.MagnifierSize = magSize;
                 settings.MagnifierZoom = magZoom;
                 settings.MagnifierFontSize = magFont;
-                settings.StampModeEnabled = chkStampMode.Checked;
                 settings.StampBoxWidth = stampWidth;
                 settings.StampBoxHeight = stampHeight;
                 settings.StampWheelScaleStepPercent = stampStep;
@@ -192,12 +203,14 @@ namespace ScreenCaptureTool
             };
 
             btnCapture = new Button { Text = "立即截图", Location = new Point(180, y), Size = new Size(120, 40), BackColor = Color.LightBlue };
-            btnCapture.Click += (s, e) => StartCapture();
+            btnCapture.Click += (s, e) => StartCapture(false);
 
             settingsPanel.Controls.Add(lblHotkey);
             settingsPanel.Controls.Add(txtHotkey);
             settingsPanel.Controls.Add(lblCancelHotkey);
             settingsPanel.Controls.Add(txtCancelHotkey);
+            settingsPanel.Controls.Add(lblStampHotkey);
+            settingsPanel.Controls.Add(txtStampHotkey);
             settingsPanel.Controls.Add(lblOpacity);
             settingsPanel.Controls.Add(txtOpacity);
             settingsPanel.Controls.Add(lblBorder);
@@ -216,7 +229,6 @@ namespace ScreenCaptureTool
             settingsPanel.Controls.Add(txtMagnifierZoom);
             settingsPanel.Controls.Add(lblMagnifierFont);
             settingsPanel.Controls.Add(txtMagnifierFont);
-            settingsPanel.Controls.Add(chkStampMode);
             settingsPanel.Controls.Add(lblStampWidth);
             settingsPanel.Controls.Add(txtStampWidth);
             settingsPanel.Controls.Add(lblStampHeight);
@@ -283,11 +295,31 @@ namespace ScreenCaptureTool
             txtCancelHotkey.Text = hotkeyText;
         }
 
+        private void TxtStampHotkey_KeyDown(object sender, KeyEventArgs e)
+        {
+            e.SuppressKeyPress = true;
+            if (e.KeyCode == Keys.None) return;
+
+            string hotkeyText = "";
+            uint modifiers = 0;
+            if (e.Control) { hotkeyText += "Ctrl + "; modifiers |= 2; }
+            if (e.Alt) { hotkeyText += "Alt + "; modifiers |= 1; }
+            if (e.Shift) { hotkeyText += "Shift + "; modifiers |= 4; }
+
+            hotkeyText += e.KeyCode.ToString();
+
+            settings.StampHotkey = hotkeyText;
+            settings.StampHotkeyModifiers = modifiers;
+            settings.StampHotkeyCode = (uint)e.KeyCode;
+            txtStampHotkey.Text = hotkeyText;
+        }
+
         private void SetupTrayIcon()
         {
             trayMenu = new ContextMenuStrip();
             trayMenu.Items.Add("显示设置", null, (s, e) => this.ShowAndActivate());
-            trayMenu.Items.Add("立即截图 (F1)", null, (s, e) => StartCapture());
+            trayMenu.Items.Add("立即截图 (F1)", null, (s, e) => StartCapture(false));
+            trayMenu.Items.Add("印章截图 (F2)", null, (s, e) => StartCapture(true));
             trayMenu.Items.Add("-");
             trayMenu.Items.Add("退出", null, (s, e) => Application.Exit());
 
@@ -326,25 +358,35 @@ namespace ScreenCaptureTool
             {
                 MessageBox.Show($"无法注册取消热键 {settings.CancelHotkey}，可能已被占用。");
             }
+            UnregisterHotKey(this.Handle, STAMP_HOTKEY_ID);
+            bool stampSuccess = RegisterHotKey(this.Handle, STAMP_HOTKEY_ID, settings.StampHotkeyModifiers, settings.StampHotkeyCode);
+            if (!stampSuccess)
+            {
+                MessageBox.Show($"无法注册印章热键 {settings.StampHotkey}，可能已被占用。");
+            }
         }
 
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == HOTKEY_ID)
             {
-                StartCapture();
+                StartCapture(false);
             }
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == CANCEL_HOTKEY_ID)
             {
                 OverlayForm.CloseAllOpen();
             }
+            if (m.Msg == 0x0312 && m.WParam.ToInt32() == STAMP_HOTKEY_ID)
+            {
+                StartCapture(true);
+            }
             base.WndProc(ref m);
         }
 
-        private void StartCapture()
+        private void StartCapture(bool stampMode)
         {
             this.Hide();
-            using (var captureForm = new CaptureForm(settings))
+            using (var captureForm = new CaptureForm(settings, stampMode))
             {
                 if (captureForm.ShowDialog() == DialogResult.OK)
                 {
@@ -364,6 +406,8 @@ namespace ScreenCaptureTool
             else
             {
                 UnregisterHotKey(this.Handle, HOTKEY_ID);
+                UnregisterHotKey(this.Handle, CANCEL_HOTKEY_ID);
+                UnregisterHotKey(this.Handle, STAMP_HOTKEY_ID);
                 trayIcon.Dispose();
             }
         }

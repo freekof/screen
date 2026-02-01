@@ -36,10 +36,10 @@ namespace ScreenCaptureTool
         public Rectangle SelectedRegion => selectedRegionScreen;
         public Bitmap SelectedImage { get; private set; }
 
-        public CaptureForm(Settings settings)
+        public CaptureForm(Settings settings, bool stampMode)
         {
             this.settings = settings;
-            this.stampMode = settings.StampModeEnabled;
+            this.stampMode = stampMode;
             this.FormBorderStyle = FormBorderStyle.None;
             this.AutoScaleMode = AutoScaleMode.None;
             this.StartPosition = FormStartPosition.Manual;

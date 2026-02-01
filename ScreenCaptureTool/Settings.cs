@@ -25,6 +25,9 @@ namespace ScreenCaptureTool
         public string CancelHotkey { get; set; } = "Esc";
         public uint CancelHotkeyModifiers { get; set; } = 0;
         public uint CancelHotkeyCode { get; set; } = 0x1B; // Esc
+        public string StampHotkey { get; set; } = "F2";
+        public uint StampHotkeyModifiers { get; set; } = 0;
+        public uint StampHotkeyCode { get; set; } = 0x71; // F2
 
         private static string FilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
 
