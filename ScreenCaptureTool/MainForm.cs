@@ -62,7 +62,7 @@ namespace ScreenCaptureTool
             settings = Settings.Load();
 
             this.Text = "抓屏软件设置";
-            this.Size = new Size(420, 640);
+            this.Size = new Size(366, 580);
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -86,8 +86,8 @@ namespace ScreenCaptureTool
             y += 25;
             txtHotkey = new TextBox {
                 Text = settings.Hotkey,
-                Location = new Point(250, y -28),
-                Size = new Size(80, 25),
+                Location = new Point(250, y -26),
+                Size = new Size(80, 23),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
@@ -99,8 +99,8 @@ namespace ScreenCaptureTool
             y += 30;
             txtCancelHotkey = new TextBox {
                 Text = settings.CancelHotkey,
-                Location = new Point(250, y -28),
-                Size = new Size(80, 25),
+                Location = new Point(250, y -26),
+                Size = new Size(80, 23),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
@@ -112,8 +112,8 @@ namespace ScreenCaptureTool
             y += 30;
             txtStampHotkey = new TextBox {
                 Text = settings.StampHotkey,
-                Location = new Point(250, y -28),
-                Size = new Size(80, 25),
+                Location = new Point(250, y -26),
+                Size = new Size(80, 23),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
