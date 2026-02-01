@@ -86,7 +86,7 @@ namespace ScreenCaptureTool
             y += 25;
             txtHotkey = new TextBox {
                 Text = settings.Hotkey,
-                Location = new Point(20, y),
+                Location = new Point(250, y - 2),
                 Size = new Size(38, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
@@ -99,7 +99,7 @@ namespace ScreenCaptureTool
             y += 25;
             txtCancelHotkey = new TextBox {
                 Text = settings.CancelHotkey,
-                Location = new Point(20, y),
+                Location = new Point(250, y - 2),
                 Size = new Size(38, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
@@ -112,7 +112,7 @@ namespace ScreenCaptureTool
             y += 25;
             txtStampHotkey = new TextBox {
                 Text = settings.StampHotkey,
-                Location = new Point(20, y),
+                Location = new Point(250, y - 2),
                 Size = new Size(38, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
@@ -122,51 +122,51 @@ namespace ScreenCaptureTool
             y += 35;
 
             lblOpacity = new Label { Text = "初始透明度 (10-100)%:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtOpacity = new TextBox { Text = settings.DefaultOpacity.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtOpacity = new TextBox { Text = settings.DefaultOpacity.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
             lblBorder = new Label { Text = "边框大小 (0-20)px:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtBorder = new TextBox { Text = settings.BorderSize.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtBorder = new TextBox { Text = settings.BorderSize.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
             lblSimilarity = new Label { Text = "相似度 (50-99)%:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtSimilarity = new TextBox { Text = settings.SimilarityThresholdPercent.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtSimilarity = new TextBox { Text = settings.SimilarityThresholdPercent.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
             lblMarkerBorder = new Label { Text = "标记框粗细 (1-10)px:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMarkerBorder = new TextBox { Text = settings.MarkerBorderThickness.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtMarkerBorder = new TextBox { Text = settings.MarkerBorderThickness.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
             lblMarkerFont = new Label { Text = "标记文字大小 (10-48):", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMarkerFont = new TextBox { Text = settings.MarkerFontSize.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtMarkerFont = new TextBox { Text = settings.MarkerFontSize.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
             lblMarkerAlpha = new Label { Text = "标记框透明度 (20-200):", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMarkerAlpha = new TextBox { Text = settings.MarkerFillAlpha.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtMarkerAlpha = new TextBox { Text = settings.MarkerFillAlpha.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
             lblMagnifierSize = new Label { Text = "放大镜大小 (80-260)px:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMagnifierSize = new TextBox { Text = settings.MagnifierSize.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtMagnifierSize = new TextBox { Text = settings.MagnifierSize.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
             lblMagnifierZoom = new Label { Text = "放大倍数 (2-15)x:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMagnifierZoom = new TextBox { Text = settings.MagnifierZoom.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtMagnifierZoom = new TextBox { Text = settings.MagnifierZoom.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
             lblMagnifierFont = new Label { Text = "放大镜文字大小 (8-20):", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMagnifierFont = new TextBox { Text = settings.MagnifierFontSize.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtMagnifierFont = new TextBox { Text = settings.MagnifierFontSize.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 35;
 
             lblStampWidth = new Label { Text = "印章框宽度 (20-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtStampWidth = new TextBox { Text = settings.StampBoxWidth.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtStampWidth = new TextBox { Text = settings.StampBoxWidth.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
             lblStampHeight = new Label { Text = "印章框高度 (20-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtStampHeight = new TextBox { Text = settings.StampBoxHeight.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtStampHeight = new TextBox { Text = settings.StampBoxHeight.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
             lblStampStep = new Label { Text = "滚轮缩放步进 (5-30)%:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtStampStep = new TextBox { Text = settings.StampWheelScaleStepPercent.ToString(), Location = new Point(250, y - 2), Size = new Size(90, 25) };
+            txtStampStep = new TextBox { Text = settings.StampWheelScaleStepPercent.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 40;
 
             btnApply = new Button { Text = "保存并隐藏", Location = new Point(20, y), Size = new Size(120, 40), BackColor = Color.LightGray };
