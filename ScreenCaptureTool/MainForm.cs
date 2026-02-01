@@ -86,7 +86,7 @@ namespace ScreenCaptureTool
             y += 25;
             txtHotkey = new TextBox {
                 Text = settings.Hotkey,
-                Location = new Point(250, y),
+                Location = new Point(220, y),
                 Size = new Size(80, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
@@ -99,7 +99,7 @@ namespace ScreenCaptureTool
             y += 30;
             txtCancelHotkey = new TextBox {
                 Text = settings.CancelHotkey,
-                Location = new Point(250, y - 2),
+                Location = new Point(220, y),
                 Size = new Size(80, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
@@ -112,14 +112,14 @@ namespace ScreenCaptureTool
             y += 30;
             txtStampHotkey = new TextBox {
                 Text = settings.StampHotkey,
-                Location = new Point(250, y - 2),
+                Location = new Point(220, y),
                 Size = new Size(80, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
             };
             txtStampHotkey.KeyDown += TxtStampHotkey_KeyDown;
-            y += 35;
+            y += 30;
 
             lblOpacity = new Label { Text = "初始透明度 (10-100)%:", Location = new Point(20, y), Size = new Size(220, 20) };
             txtOpacity = new TextBox { Text = settings.DefaultOpacity.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
