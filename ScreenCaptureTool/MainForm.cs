@@ -82,7 +82,7 @@ namespace ScreenCaptureTool
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
             
-            lblHotkey = new Label { Text = "启动快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(340, 20) };
+            lblHotkey = new Label { Text = "启动快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(220, 20) };
             y += 25;
             txtHotkey = new TextBox {
                 Text = settings.Hotkey,
@@ -95,7 +95,7 @@ namespace ScreenCaptureTool
             txtHotkey.KeyDown += TxtHotkey_KeyDown;
             y += 40;
 
-            lblCancelHotkey = new Label { Text = "取消快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(340, 20) };
+            lblCancelHotkey = new Label { Text = "取消快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(220, 20) };
             y += 30;
             txtCancelHotkey = new TextBox {
                 Text = settings.CancelHotkey,
@@ -108,7 +108,7 @@ namespace ScreenCaptureTool
             txtCancelHotkey.KeyDown += TxtCancelHotkey_KeyDown;
             y += 30;
 
-            lblStampHotkey = new Label { Text = "印章模式快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(340, 20) };
+            lblStampHotkey = new Label { Text = "印章模式快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(220, 20) };
             y += 30;
             txtStampHotkey = new TextBox {
                 Text = settings.StampHotkey,
