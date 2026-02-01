@@ -86,40 +86,40 @@ namespace ScreenCaptureTool
             y += 25;
             txtHotkey = new TextBox {
                 Text = settings.Hotkey,
-                Location = new Point(250, y -25),
+                Location = new Point(250, y -28),
                 Size = new Size(80, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
             };
             txtHotkey.KeyDown += TxtHotkey_KeyDown;
-            y += 40;
+       
 
             lblCancelHotkey = new Label { Text = "取消快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(220, 20) };
             y += 30;
             txtCancelHotkey = new TextBox {
                 Text = settings.CancelHotkey,
-                Location = new Point(250, y -25),
+                Location = new Point(250, y -28),
                 Size = new Size(80, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
             };
             txtCancelHotkey.KeyDown += TxtCancelHotkey_KeyDown;
-            y += 30;
+      
 
             lblStampHotkey = new Label { Text = "印章模式快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(220, 20) };
             y += 30;
             txtStampHotkey = new TextBox {
                 Text = settings.StampHotkey,
-                Location = new Point(250, y -25),
+                Location = new Point(250, y -28),
                 Size = new Size(80, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
             };
             txtStampHotkey.KeyDown += TxtStampHotkey_KeyDown;
-            y += 30;
+  
 
             lblOpacity = new Label { Text = "初始透明度 (10-100)%:", Location = new Point(20, y), Size = new Size(220, 20) };
             txtOpacity = new TextBox { Text = settings.DefaultOpacity.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
