@@ -86,8 +86,8 @@ namespace ScreenCaptureTool
             y += 25;
             txtHotkey = new TextBox {
                 Text = settings.Hotkey,
-                Location = new Point(250, y - 2),
-                Size = new Size(38, 25),
+                Location = new Point(250, y),
+                Size = new Size(80, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
@@ -96,24 +96,24 @@ namespace ScreenCaptureTool
             y += 40;
 
             lblCancelHotkey = new Label { Text = "取消快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(340, 20) };
-            y += 25;
+            y += 30;
             txtCancelHotkey = new TextBox {
                 Text = settings.CancelHotkey,
                 Location = new Point(250, y - 2),
-                Size = new Size(38, 25),
+                Size = new Size(80, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
             };
             txtCancelHotkey.KeyDown += TxtCancelHotkey_KeyDown;
-            y += 35;
+            y += 30;
 
             lblStampHotkey = new Label { Text = "印章模式快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(340, 20) };
-            y += 25;
+            y += 30;
             txtStampHotkey = new TextBox {
                 Text = settings.StampHotkey,
                 Location = new Point(250, y - 2),
-                Size = new Size(38, 25),
+                Size = new Size(80, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
