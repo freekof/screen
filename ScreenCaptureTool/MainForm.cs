@@ -87,7 +87,7 @@ namespace ScreenCaptureTool
             txtHotkey = new TextBox {
                 Text = settings.Hotkey,
                 Location = new Point(20, y),
-                Size = new Size(30, 25),
+                Size = new Size(38, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
@@ -100,7 +100,7 @@ namespace ScreenCaptureTool
             txtCancelHotkey = new TextBox {
                 Text = settings.CancelHotkey,
                 Location = new Point(20, y),
-                Size = new Size(30, 25),
+                Size = new Size(38, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
@@ -113,7 +113,7 @@ namespace ScreenCaptureTool
             txtStampHotkey = new TextBox {
                 Text = settings.StampHotkey,
                 Location = new Point(20, y),
-                Size = new Size(30, 25),
+                Size = new Size(38, 25),
                 ReadOnly = true,
                 BackColor = Color.White,
                 TextAlign = HorizontalAlignment.Center
