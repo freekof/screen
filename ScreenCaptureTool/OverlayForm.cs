@@ -35,6 +35,8 @@ namespace ScreenCaptureTool
         private List<Rectangle> markerRects = new List<Rectangle>();
         private const int MinImageScale = 20;
         private const int MaxImageScale = 500;
+        private const int MaxMatchCount = 50;
+        private const double LowVarianceStdDev = 5.0;
         private int imageScale = 100;
         private float DpiScale => Math.Max(1.0f, this.DeviceDpi / 96f);
 
@@ -342,8 +344,8 @@ namespace ScreenCaptureTool
             using (Mat screenGray = new Mat())
             using (Mat templateGray = new Mat())
             {
-                Cv2.CvtColor(screenMat, screenGray, ColorConversionCodes.BGR2GRAY);
-                Cv2.CvtColor(templateMat, templateGray, ColorConversionCodes.BGR2GRAY);
+                ConvertToGray(screenMat, screenGray);
+                ConvertToGray(templateMat, templateGray);
 
                 using (var orb = ORB.Create(1000))
                 {
@@ -458,8 +460,8 @@ namespace ScreenCaptureTool
             using (Mat screenGray = new Mat())
             using (Mat templateGray = new Mat())
             {
-                Cv2.CvtColor(screenMat, screenGray, ColorConversionCodes.BGR2GRAY);
-                Cv2.CvtColor(templateMat, templateGray, ColorConversionCodes.BGR2GRAY);
+                ConvertToGray(screenMat, screenGray);
+                ConvertToGray(templateMat, templateGray);
                 return MatchWithTemplate(screenGray, templateGray, threshold);
             }
         }
@@ -470,7 +472,58 @@ namespace ScreenCaptureTool
             {
                 return 0;
             }
+            int count = MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
+            if (count > 0)
+            {
+                return count;
+            }
 
+            double relaxed = Math.Max(0.5, threshold - 0.03);
+            double[] scales = new[] { 0.9, 1.1, 0.8, 1.2, 0.7, 1.3 };
+            for (int i = 0; i < scales.Length; i++)
+            {
+                int targetW = (int)Math.Round(templateGray.Width * scales[i]);
+                int targetH = (int)Math.Round(templateGray.Height * scales[i]);
+                if (targetW < 8 || targetH < 8)
+                {
+                    continue;
+                }
+                if (targetW > screenGray.Width || targetH > screenGray.Height)
+                {
+                    continue;
+                }
+
+                using (Mat scaledTemplate = new Mat())
+                {
+                    Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
+                    count = MatchWithTemplateAdaptive(screenGray, scaledTemplate, relaxed);
+                    if (count > 0)
+                    {
+                        return count;
+                    }
+                }
+            }
+
+            return 0;
+        }
+
+        private int MatchWithTemplateAdaptive(Mat screenGray, Mat templateGray, double threshold)
+        {
+            bool lowVariance = IsLowVariance(templateGray);
+            if (!lowVariance)
+            {
+                int count = MatchWithTemplateCCoeff(screenGray, templateGray, threshold);
+                if (count > 0)
+                {
+                    return count;
+                }
+            }
+
+            return MatchWithTemplateSqDiff(screenGray, templateGray, threshold);
+        }
+
+        private int MatchWithTemplateCCoeff(Mat screenGray, Mat templateGray, double threshold)
+        {
             using (Mat result = new Mat())
             {
                 Cv2.MatchTemplate(screenGray, templateGray, result, TemplateMatchModes.CCoeffNormed);
@@ -482,19 +535,63 @@ namespace ScreenCaptureTool
                     double minVal, maxVal;
                     OpenCvSharp.Point minLoc, maxLoc;
                     Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
+                    if (double.IsNaN(maxVal))
+                    {
+                        return 0;
+                    }
 
-                    if (maxVal >= threshold && count < 50) // 最多标记 50 个
+                    if (maxVal >= threshold && count < MaxMatchCount)
                     {
                         count++;
                         Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
                         AddNumberedMarker(rect);
                         Cv2.FloodFill(result, maxLoc, new Scalar(0));
                     }
-                    else break;
+                    else
+                    {
+                        break;
+                    }
                 }
 
                 return count;
             }
+        }
+
+        private int MatchWithTemplateSqDiff(Mat screenGray, Mat templateGray, double threshold)
+        {
+            double diffThreshold = Math.Max(0.0, 1.0 - threshold);
+            using (Mat result = new Mat())
+            {
+                Cv2.MatchTemplate(screenGray, templateGray, result, TemplateMatchModes.SqDiffNormed);
+
+                int count = 0;
+                while (true)
+                {
+                    double minVal, maxVal;
+                    OpenCvSharp.Point minLoc, maxLoc;
+                    Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
+
+                    if (minVal <= diffThreshold && count < MaxMatchCount)
+                    {
+                        count++;
+                        Rectangle rect = new Rectangle(minLoc.X, minLoc.Y, templateGray.Width, templateGray.Height);
+                        AddNumberedMarker(rect);
+                        Cv2.FloodFill(result, minLoc, new Scalar(1.0));
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                return count;
+            }
+        }
+
+        private static bool IsLowVariance(Mat templateGray)
+        {
+            Cv2.MeanStdDev(templateGray, out _, out Scalar stddev);
+            return stddev.Val0 < LowVarianceStdDev;
         }
 
         private void AddNumberedMarker(Rectangle rect)
@@ -544,6 +641,18 @@ namespace ScreenCaptureTool
             double dx = a.X - b.X;
             double dy = a.Y - b.Y;
             return Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        private static void ConvertToGray(Mat src, Mat dst)
+        {
+            if (src.Channels() == 4)
+            {
+                Cv2.CvtColor(src, dst, ColorConversionCodes.BGRA2GRAY);
+            }
+            else
+            {
+                Cv2.CvtColor(src, dst, ColorConversionCodes.BGR2GRAY);
+            }
         }
 
         private static string LogException(Exception ex)
