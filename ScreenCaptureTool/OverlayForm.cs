@@ -163,7 +163,7 @@ namespace ScreenCaptureTool
             // 画边框（跟随图像区域，避免拉伸）
             if (drawnRect.HasValue)
             {
-                using (Pen pen = new Pen(Color.LightCoral, settings.BorderSize))
+                using (Pen pen = new Pen(Color.Orange, settings.BorderSize))
                 {
                     Rectangle rect = drawnRect.Value;
                     g.DrawRectangle(pen, rect);
@@ -773,7 +773,7 @@ namespace ScreenCaptureTool
             g.PageUnit = GraphicsUnit.Pixel;
             using (Pen pen = new Pen(Color.FromArgb(settings.MarkerFillAlpha, baseColor), settings.MarkerBorderThickness))
             using (Font font = new Font("Arial", settings.MarkerFontSize, FontStyle.Bold))
-            using (SolidBrush textBrush = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, Color.White)))
+            using (SolidBrush textBrush = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, baseColor)))  // ← 由 White 改为 baseColor
             using (StringFormat format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
                 foreach (var marker in markers)
