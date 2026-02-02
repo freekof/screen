@@ -24,6 +24,8 @@ namespace ScreenCaptureTool
           Color.Cyan,          // 青
           Color.HotPink        // 粉
         };
+        private static readonly Random MarkerRng = new Random();
+        private static readonly Queue<Color> MarkerBag = new Queue<Color>();
         private Bitmap image;
         private Settings settings;
         private readonly Color markerColor;
@@ -81,8 +83,7 @@ namespace ScreenCaptureTool
         {
             this.image = img;
             this.settings = settings;
-            int seq = System.Threading.Interlocked.Increment(ref CaptureSequence);
-            markerColor = MarkerPalette[(seq - 1) % MarkerPalette.Length];
+            markerColor = GetNextMarkerColor();
             this.AutoScaleMode = AutoScaleMode.None;
             this.AutoSize = false;
             this.FormBorderStyle = FormBorderStyle.None;
@@ -725,6 +726,30 @@ namespace ScreenCaptureTool
             {
                 markerOverlay = new MarkerOverlayForm(settings, markerColor);
                 markerOverlay.Show();
+            }
+        }
+
+        private static Color GetNextMarkerColor()
+        {
+            lock (OpenSync)
+            {
+                if (MarkerBag.Count == 0)
+                {
+                    var list = new List<Color>(MarkerPalette);
+                    for (int i = list.Count - 1; i > 0; i--)
+                    {
+                        int j = MarkerRng.Next(i + 1);
+                        Color tmp = list[i];
+                        list[i] = list[j];
+                        list[j] = tmp;
+                    }
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        MarkerBag.Enqueue(list[i]);
+                    }
+                }
+
+                return MarkerBag.Dequeue();
             }
         }
     }
