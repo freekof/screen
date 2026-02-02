@@ -153,15 +153,15 @@ namespace ScreenCaptureTool
             txtMagnifierZoom = new TextBox { Text = settings.MagnifierZoom.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
-            lblMagnifierFont = new Label { Text = "放大镜文字大小 (8-20):", Location = new Point(20, y), Size = new Size(220, 20) };
+            lblMagnifierFont = new Label { Text = "放大镜文字大小 (6-20):", Location = new Point(20, y), Size = new Size(220, 20) };
             txtMagnifierFont = new TextBox { Text = settings.MagnifierFontSize.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 35;
 
-            lblStampWidth = new Label { Text = "印章框宽度 (20-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
+            lblStampWidth = new Label { Text = "印章框宽度 (20-800)px:", Location = new Point(20, y), Size = new Size(220, 20) };
             txtStampWidth = new TextBox { Text = settings.StampBoxWidth.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
-            lblStampHeight = new Label { Text = "印章框高度 (20-400)px:", Location = new Point(20, y), Size = new Size(220, 20) };
+            lblStampHeight = new Label { Text = "印章框高度 (20-800)px:", Location = new Point(20, y), Size = new Size(220, 20) };
             txtStampHeight = new TextBox { Text = settings.StampBoxHeight.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
             y += 30;
 
