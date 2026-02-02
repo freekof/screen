@@ -17,7 +17,7 @@ namespace ScreenCaptureTool
         private static int CaptureSequence = 0;
         private static readonly Color[] MarkerPalette = new[]
         {
-          Color.DeepSkyBlue,   // 蓝
+          Color.Blue,   // 蓝
           Color.Gold,          // 金
           Color.Purple,        // 紫
           Color.Orange,        // 橙
