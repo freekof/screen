@@ -163,7 +163,7 @@ namespace ScreenCaptureTool
             // 画边框（跟随图像区域，避免拉伸）
             if (drawnRect.HasValue)
             {
-                using (Pen pen = new Pen(Color.Cyan, settings.BorderSize))
+                using (Pen pen = new Pen(Color.LightCoral, settings.BorderSize))
                 {
                     Rectangle rect = drawnRect.Value;
                     g.DrawRectangle(pen, rect);
