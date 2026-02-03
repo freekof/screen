@@ -18,7 +18,6 @@ namespace ScreenCaptureTool
         private Bitmap image;
         private Settings settings;
         private Color currentMatchColor;
-        private readonly MarkerColorProvider markerColorProvider = new MarkerColorProvider();
         private System.Drawing.Point lastMousePos;
         private bool isDragging = false;
         private bool isResizing = false;
@@ -73,7 +72,7 @@ namespace ScreenCaptureTool
         {
             this.image = img;
             this.settings = settings;
-            currentMatchColor = markerColorProvider.NextColor();
+            currentMatchColor = MarkerColorProvider.NextSharedColor();
             this.AutoScaleMode = AutoScaleMode.None;
             this.AutoSize = false;
             this.FormBorderStyle = FormBorderStyle.None;
@@ -299,7 +298,7 @@ namespace ScreenCaptureTool
         private void StartMatching()
         {
             CloseAllMarkers();
-            currentMatchColor = markerColorProvider.NextColor();
+            currentMatchColor = MarkerColorProvider.NextSharedColor();
             try
             {
                 // 1. 截取全屏

@@ -6,8 +6,18 @@ namespace ScreenCaptureTool
 {
     public sealed class MarkerColorProvider
     {
+        private static readonly object SharedSync = new object();
+        private static readonly MarkerColorProvider SharedProvider = new MarkerColorProvider();
         private readonly List<Color> palette;
         private int index;
+
+        public static Color NextSharedColor()
+        {
+            lock (SharedSync)
+            {
+                return SharedProvider.NextColor();
+            }
+        }
 
         public MarkerColorProvider()
             : this(GetDefaultPalette())

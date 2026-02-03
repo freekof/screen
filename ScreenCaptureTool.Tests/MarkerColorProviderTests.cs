@@ -34,5 +34,18 @@ namespace ScreenCaptureTool.Tests
             Assert.AreEqual(Color.Gold, second);
             Assert.AreEqual(Color.Blue, third);
         }
+
+        [TestMethod]
+        public void NextSharedColor_AdvancesAcrossSessions()
+        {
+            Color first = MarkerColorProvider.NextSharedColor();
+            Color second = MarkerColorProvider.NextSharedColor();
+
+            Assert.AreNotEqual(first, second, "Shared color should advance between calls.");
+            Assert.AreNotEqual(Color.Red, first, "Color.Red should be excluded.");
+            Assert.AreNotEqual(Color.Green, first, "Color.Green should be excluded.");
+            Assert.AreNotEqual(Color.Red, second, "Color.Red should be excluded.");
+            Assert.AreNotEqual(Color.Green, second, "Color.Green should be excluded.");
+        }
     }
 }
