@@ -15,20 +15,10 @@ namespace ScreenCaptureTool
         private static readonly object OpenSync = new object();
         private static readonly List<OverlayForm> OpenOverlays = new List<OverlayForm>();
         private static int CaptureSequence = 0;
-        private static readonly Color[] MarkerPalette = new[]
-        {
-          Color.Blue,   // 蓝
-          Color.Gold,          // 金
-          Color.Purple,        // 紫
-          Color.Orange,        // 橙
-          Color.Cyan,          // 青
-          Color.HotPink        // 粉
-        };
-        private static readonly Random MarkerRng = new Random();
-        private static readonly Queue<Color> MarkerBag = new Queue<Color>();
         private Bitmap image;
         private Settings settings;
-        private readonly Color markerColor;
+        private Color currentMatchColor;
+        private readonly MarkerColorProvider markerColorProvider = new MarkerColorProvider();
         private System.Drawing.Point lastMousePos;
         private bool isDragging = false;
         private bool isResizing = false;
@@ -83,7 +73,7 @@ namespace ScreenCaptureTool
         {
             this.image = img;
             this.settings = settings;
-            markerColor = GetNextMarkerColor();
+            currentMatchColor = markerColorProvider.NextColor();
             this.AutoScaleMode = AutoScaleMode.None;
             this.AutoSize = false;
             this.FormBorderStyle = FormBorderStyle.None;
@@ -309,6 +299,7 @@ namespace ScreenCaptureTool
         private void StartMatching()
         {
             CloseAllMarkers();
+            currentMatchColor = markerColorProvider.NextColor();
             try
             {
                 // 1. 截取全屏
@@ -724,32 +715,12 @@ namespace ScreenCaptureTool
         {
             if (markerOverlay == null || markerOverlay.IsDisposed)
             {
-                markerOverlay = new MarkerOverlayForm(settings, markerColor);
+                markerOverlay = new MarkerOverlayForm(settings, currentMatchColor);
                 markerOverlay.Show();
             }
-        }
-
-        private static Color GetNextMarkerColor()
-        {
-            lock (OpenSync)
+            else
             {
-                if (MarkerBag.Count == 0)
-                {
-                    var list = new List<Color>(MarkerPalette);
-                    for (int i = list.Count - 1; i > 0; i--)
-                    {
-                        int j = MarkerRng.Next(i + 1);
-                        Color tmp = list[i];
-                        list[i] = list[j];
-                        list[j] = tmp;
-                    }
-                    for (int i = 0; i < list.Count; i++)
-                    {
-                        MarkerBag.Enqueue(list[i]);
-                    }
-                }
-
-                return MarkerBag.Dequeue();
+                markerOverlay.SetBaseColor(currentMatchColor);
             }
         }
     }
@@ -757,7 +728,7 @@ namespace ScreenCaptureTool
     public class MarkerOverlayForm : Form
     {
         private readonly Settings settings;
-        private readonly Color baseColor;
+        private Color baseColor;
         private readonly List<(Rectangle Rect, string Text)> markers = new List<(Rectangle, string)>();
 
         public MarkerOverlayForm(Settings settings, Color baseColor)
@@ -789,6 +760,16 @@ namespace ScreenCaptureTool
         public void AddMarker(Rectangle rect, string text)
         {
             markers.Add((rect, text));
+            Invalidate();
+        }
+
+        public void SetBaseColor(Color color)
+        {
+            if (baseColor == color)
+            {
+                return;
+            }
+            baseColor = color;
             Invalidate();
         }
 
