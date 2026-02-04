@@ -472,7 +472,7 @@ namespace ScreenCaptureTool
             }
 
             double relaxed = Math.Max(0.5, threshold - 0.03);
-            double[] scales = new[] { 0.9, 1.1, 0.8, 1.2, 0.7, 1.3 };
+            double[] scales = new[] { 0.9, 1.1, 0.8, 1.2, 0.7, 1.3, 1.4, 1.5 };
             for (int i = 0; i < scales.Length; i++)
             {
                 int targetW = (int)Math.Round(templateGray.Width * scales[i]);
