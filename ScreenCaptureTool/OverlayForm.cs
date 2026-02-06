@@ -256,19 +256,19 @@ namespace ScreenCaptureTool
             {
                 CloseAllOpen();
             }
-            else if (e.KeyCode == Keys.Up)
+            else if (e.KeyCode == Keys.Up || e.KeyCode == Keys.W)
             {
                 this.Top -= 1;
             }
-            else if (e.KeyCode == Keys.Down)
+            else if (e.KeyCode == Keys.Down || e.KeyCode == Keys.S)
             {
                 this.Top += 1;
             }
-            else if (e.KeyCode == Keys.Left)
+            else if (e.KeyCode == Keys.Left || e.KeyCode == Keys.A)
             {
                 this.Left -= 1;
             }
-            else if (e.KeyCode == Keys.Right)
+            else if (e.KeyCode == Keys.Right || e.KeyCode == Keys.D)
             {
                 this.Left += 1;
             }
@@ -299,8 +299,16 @@ namespace ScreenCaptureTool
         {
             CloseAllMarkers();
             currentMatchColor = MarkerColorProvider.NextSharedColor();
+            bool wasVisible = this.Visible;
             try
             {
+                if (wasVisible)
+                {
+                    this.Hide();
+                    Application.DoEvents();
+                    System.Threading.Thread.Sleep(15);
+                }
+
                 // 1. 截取全屏
                 System.Drawing.Rectangle bounds = Screen.PrimaryScreen.Bounds;
                 using (Bitmap screenBmp = new Bitmap(bounds.Width, bounds.Height))
@@ -327,6 +335,14 @@ namespace ScreenCaptureTool
             {
                 string logPath = LogException(ex);
                 MessageBox.Show("匹配出错: " + ex.Message + "\n日志: " + logPath);
+            }
+            finally
+            {
+                if (wasVisible && !this.IsDisposed)
+                {
+                    this.Show();
+                    this.Activate();
+                }
             }
         }
 
@@ -367,7 +383,7 @@ namespace ScreenCaptureTool
                                 }
                             }
 
-                            if (good.Count < 12)
+                            if (good.Count < 8)
                             {
                                 return 0;
                             }
@@ -640,7 +656,38 @@ namespace ScreenCaptureTool
                 }
             }
 
-            return MatchWithTemplateSqDiff(screenGray, templateGray, threshold);
+            int sqDiffCount = MatchWithTemplateSqDiff(screenGray, templateGray, threshold);
+            if (sqDiffCount > 0)
+            {
+                return sqDiffCount;
+            }
+
+            return MatchWithTemplateByEdges(screenGray, templateGray, threshold);
+        }
+
+        private int MatchWithTemplateByEdges(Mat screenGray, Mat templateGray, double threshold)
+        {
+            using (Mat screenEdges = new Mat())
+            using (Mat templateEdges = new Mat())
+            {
+                Cv2.Canny(screenGray, screenEdges, 40, 120);
+                Cv2.Canny(templateGray, templateEdges, 40, 120);
+
+                int edgePixels = Cv2.CountNonZero(templateEdges);
+                if (edgePixels < 20)
+                {
+                    return 0;
+                }
+
+                double edgeThreshold = Math.Max(0.4, threshold - 0.12);
+                int ccoeffCount = MatchWithTemplateCCoeff(screenEdges, templateEdges, edgeThreshold);
+                if (ccoeffCount > 0)
+                {
+                    return ccoeffCount;
+                }
+
+                return MatchWithTemplateSqDiff(screenEdges, templateEdges, edgeThreshold);
+            }
         }
 
         private int MatchWithTemplateCCoeff(Mat screenGray, Mat templateGray, double threshold)
