@@ -472,7 +472,8 @@ namespace ScreenCaptureTool
             }
 
             double relaxed = Math.Max(0.5, threshold - 0.03);
-            double[] scales = new[] { 0.9, 1.1, 0.8, 1.2, 0.7, 1.3, 0.6 };
+            double[] scales = new[] { 1.0, 0.9, 1.1, 0.8, 1.2, 0.7, 1.3, 0.6, 1.4, 0.5, 1.5 };
+            double[] angles = new[] { -18.0, -12.0, -6.0, 6.0, 12.0, 18.0 };
             for (int i = 0; i < scales.Length; i++)
             {
                 int targetW = (int)Math.Round(templateGray.Width * scales[i]);
@@ -488,8 +489,22 @@ namespace ScreenCaptureTool
 
                 using (Mat scaledTemplate = new Mat())
                 {
-                    Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
+                    if (Math.Abs(scales[i] - 1.0) < 0.001)
+                    {
+                        templateGray.CopyTo(scaledTemplate);
+                    }
+                    else
+                    {
+                        Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
+                    }
+
                     count = MatchWithTemplateAdaptive(screenGray, scaledTemplate, relaxed);
+                    if (count > 0)
+                    {
+                        return count;
+                    }
+
+                    count = MatchWithTemplateRotations(screenGray, scaledTemplate, relaxed, angles);
                     if (count > 0)
                     {
                         return count;
@@ -498,6 +513,54 @@ namespace ScreenCaptureTool
             }
 
             return 0;
+        }
+
+        private int MatchWithTemplateRotations(Mat screenGray, Mat templateGray, double threshold, double[] angles)
+        {
+            for (int i = 0; i < angles.Length; i++)
+            {
+                using (Mat rotatedTemplate = RotateTemplate(templateGray, angles[i]))
+                {
+                    if (rotatedTemplate.Width < 8 || rotatedTemplate.Height < 8)
+                    {
+                        continue;
+                    }
+                    if (rotatedTemplate.Width > screenGray.Width || rotatedTemplate.Height > screenGray.Height)
+                    {
+                        continue;
+                    }
+
+                    int count = MatchWithTemplateAdaptive(screenGray, rotatedTemplate, threshold);
+                    if (count > 0)
+                    {
+                        return count;
+                    }
+                }
+            }
+
+            return 0;
+        }
+
+        private static Mat RotateTemplate(Mat src, double angle)
+        {
+            Point2f center = new Point2f(src.Width / 2f, src.Height / 2f);
+            using (Mat rot = Cv2.GetRotationMatrix2D(center, angle, 1.0))
+            {
+                double radians = angle * Math.PI / 180.0;
+                double absCos = Math.Abs(Math.Cos(radians));
+                double absSin = Math.Abs(Math.Sin(radians));
+                int boundW = Math.Max(1, (int)Math.Ceiling(src.Height * absSin + src.Width * absCos));
+                int boundH = Math.Max(1, (int)Math.Ceiling(src.Height * absCos + src.Width * absSin));
+
+                double tx = rot.At<double>(0, 2) + (boundW / 2.0 - center.X);
+                double ty = rot.At<double>(1, 2) + (boundH / 2.0 - center.Y);
+                rot.Set(0, 2, tx);
+                rot.Set(1, 2, ty);
+
+                Mat dst = new Mat();
+                Cv2.WarpAffine(src, dst, rot, new OpenCvSharp.Size(boundW, boundH), InterpolationFlags.Linear, BorderTypes.Constant, new Scalar(255));
+                return dst;
+            }
         }
 
         private int MatchWithTemplateAdaptive(Mat screenGray, Mat templateGray, double threshold)
