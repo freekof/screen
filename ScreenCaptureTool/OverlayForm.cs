@@ -461,6 +461,24 @@ namespace ScreenCaptureTool
 
         private int MatchWithTemplate(Mat screenGray, Mat templateGray, double threshold)
         {
+            using (Mat trimmedTemplate = TrimWhiteBorder(templateGray))
+            {
+                bool trimmed = trimmedTemplate.Width < templateGray.Width || trimmedTemplate.Height < templateGray.Height;
+                if (trimmed)
+                {
+                    int trimmedCount = MatchWithTemplateCore(screenGray, trimmedTemplate, threshold);
+                    if (trimmedCount > 0)
+                    {
+                        return trimmedCount;
+                    }
+                }
+            }
+
+            return MatchWithTemplateCore(screenGray, templateGray, threshold);
+        }
+
+        private int MatchWithTemplateCore(Mat screenGray, Mat templateGray, double threshold)
+        {
             if (screenGray.Width < templateGray.Width || screenGray.Height < templateGray.Height)
             {
                 return 0;
@@ -473,7 +491,7 @@ namespace ScreenCaptureTool
 
             double relaxed = Math.Max(0.5, threshold - 0.03);
             double[] scales = new[] { 1.0, 0.9, 1.1, 0.8, 1.2, 0.7, 1.3, 0.6, 1.4, 0.5, 1.5 };
-            double[] angles = new[] { -18.0, -12.0, -6.0, 6.0, 12.0, 18.0 };
+            double[] angles = new[] { -30.0, -24.0, -18.0, -12.0, -6.0, 6.0, 12.0, 18.0, 24.0, 30.0 };
             for (int i = 0; i < scales.Length; i++)
             {
                 int targetW = (int)Math.Round(templateGray.Width * scales[i]);
@@ -561,6 +579,53 @@ namespace ScreenCaptureTool
                 Cv2.WarpAffine(src, dst, rot, new OpenCvSharp.Size(boundW, boundH), InterpolationFlags.Linear, BorderTypes.Constant, new Scalar(255));
                 return dst;
             }
+        }
+
+        private static Mat TrimWhiteBorder(Mat templateGray)
+        {
+            const double WhiteThreshold = 245.0;
+            int top = 0;
+            int bottom = templateGray.Height - 1;
+            int left = 0;
+            int right = templateGray.Width - 1;
+
+            while (top <= bottom)
+            {
+                Cv2.MinMaxLoc(templateGray.Row(top), out double minVal, out _, out _, out _);
+                if (minVal < WhiteThreshold) break;
+                top++;
+            }
+
+            while (bottom >= top)
+            {
+                Cv2.MinMaxLoc(templateGray.Row(bottom), out double minVal, out _, out _, out _);
+                if (minVal < WhiteThreshold) break;
+                bottom--;
+            }
+
+            while (left <= right)
+            {
+                Cv2.MinMaxLoc(templateGray.Col(left), out double minVal, out _, out _, out _);
+                if (minVal < WhiteThreshold) break;
+                left++;
+            }
+
+            while (right >= left)
+            {
+                Cv2.MinMaxLoc(templateGray.Col(right), out double minVal, out _, out _, out _);
+                if (minVal < WhiteThreshold) break;
+                right--;
+            }
+
+            int width = right - left + 1;
+            int height = bottom - top + 1;
+            if (width < 8 || height < 8)
+            {
+                return templateGray.Clone();
+            }
+
+            Rect roi = new Rect(left, top, width, height);
+            return new Mat(templateGray, roi).Clone();
         }
 
         private int MatchWithTemplateAdaptive(Mat screenGray, Mat templateGray, double threshold)
