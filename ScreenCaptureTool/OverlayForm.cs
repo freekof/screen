@@ -900,12 +900,12 @@ namespace ScreenCaptureTool
             using (Mat screenHsv = new Mat())
             using (Mat templateHsv = new Mat())
             {
-                Cv2.CvtColor(screenMat, screenHsv, screenMat.Channels() == 4 ? ColorConversionCodes.BGRA2BGR : ColorConversionCodes.BGR2BGR);
-                if (screenHsv.Channels() == 3)
-                    Cv2.CvtColor(screenHsv, screenHsv, ColorConversionCodes.BGR2HSV);
-                Cv2.CvtColor(templateMat, templateHsv, templateMat.Channels() == 4 ? ColorConversionCodes.BGRA2BGR : ColorConversionCodes.BGR2BGR);
-                if (templateHsv.Channels() == 3)
-                    Cv2.CvtColor(templateHsv, templateHsv, ColorConversionCodes.BGR2HSV);
+                Mat screenBgr = screenMat.Channels() == 4 ? screenMat.CvtColor(ColorConversionCodes.BGRA2BGR) : screenMat;
+                Mat templateBgr = templateMat.Channels() == 4 ? templateMat.CvtColor(ColorConversionCodes.BGRA2BGR) : templateMat;
+                Cv2.CvtColor(screenBgr, screenHsv, ColorConversionCodes.BGR2HSV);
+                Cv2.CvtColor(templateBgr, templateHsv, ColorConversionCodes.BGR2HSV);
+                if (screenBgr != screenMat) screenBgr.Dispose();
+                if (templateBgr != templateMat) templateBgr.Dispose();
 
                 int[] histSize = { 30, 32 };
                 Rangef[] ranges = { new Rangef(0, 180), new Rangef(0, 256) };
@@ -1115,9 +1115,7 @@ namespace ScreenCaptureTool
                 }
 
                 Moments templateMoments = Cv2.Moments(templateContours[maxIdx]);
-                double[] templateHu = new double[7];
-                Cv2.HuMoments(templateMoments, out templateHu[0], out templateHu[1], out templateHu[2],
-                    out templateHu[3], out templateHu[4], out templateHu[5], out templateHu[6]);
+                double[] templateHu = templateMoments.HuMoments();
 
                 double bestScore = double.MaxValue;
                 Rectangle bestRect = Rectangle.Empty;
