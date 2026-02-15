@@ -755,16 +755,20 @@ namespace ScreenCaptureTool
                     Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
                     if (double.IsNaN(maxVal))
                     {
-                        return 0;
+                        return count;
                     }
 
                     if (maxVal >= threshold && count < MaxMatchCount)
                     {
-                        count++;
                         Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
-                        LogMatch("Template_CCoeff", maxVal, rect, true);
-                        AddNumberedMarker(rect);
-                        Cv2.FloodFill(result, maxLoc, new Scalar(0));
+                        LogMatch("Template_CCoeff", maxVal, rect, !IsOverlapping(rect));
+                        if (!IsOverlapping(rect))
+                        {
+                            count++;
+                            AddNumberedMarker(rect);
+                        }
+                        // 清除整个模板大小的矩形区域，防止 1px 偏移重复匹配
+                        SuppressResultRegion(result, maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height, 0);
                     }
                     else
                     {
@@ -785,7 +789,6 @@ namespace ScreenCaptureTool
                 Cv2.MinMaxLoc(result, out double sqPeakMin, out _, out OpenCvSharp.Point sqPeakLoc, out _);
                 LogMatch("Template_SqDiff_Peak", 1.0 - sqPeakMin, new Rectangle(sqPeakLoc.X, sqPeakLoc.Y, templateGray.Width, templateGray.Height), false);
 
-
                 int count = 0;
                 while (true)
                 {
@@ -795,11 +798,15 @@ namespace ScreenCaptureTool
 
                     if (minVal <= diffThreshold && count < MaxMatchCount)
                     {
-                        count++;
                         Rectangle rect = new Rectangle(minLoc.X, minLoc.Y, templateGray.Width, templateGray.Height);
-                        LogMatch("Template_SqDiff", 1.0 - minVal, rect, true);
-                        AddNumberedMarker(rect);
-                        Cv2.FloodFill(result, minLoc, new Scalar(1.0));
+                        LogMatch("Template_SqDiff", 1.0 - minVal, rect, !IsOverlapping(rect));
+                        if (!IsOverlapping(rect))
+                        {
+                            count++;
+                            AddNumberedMarker(rect);
+                        }
+                        // 清除整个模板大小的矩形区域
+                        SuppressResultRegion(result, minLoc.X, minLoc.Y, templateGray.Width, templateGray.Height, 1.0);
                     }
                     else
                     {
@@ -808,6 +815,21 @@ namespace ScreenCaptureTool
                 }
 
                 return count;
+            }
+        }
+
+        private static void SuppressResultRegion(Mat result, int x, int y, int templateW, int templateH, double fillValue)
+        {
+            int x0 = Math.Max(0, x - templateW / 2);
+            int y0 = Math.Max(0, y - templateH / 2);
+            int x1 = Math.Min(result.Width, x + templateW);
+            int y1 = Math.Min(result.Height, y + templateH);
+            if (x1 > x0 && y1 > y0)
+            {
+                using (Mat roi = new Mat(result, new OpenCvSharp.Rect(x0, y0, x1 - x0, y1 - y0)))
+                {
+                    roi.SetTo(new Scalar(fillValue));
+                }
             }
         }
 
