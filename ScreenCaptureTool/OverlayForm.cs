@@ -307,28 +307,12 @@ namespace ScreenCaptureTool
 
         private static void LogMatch(string algorithm, double score, Rectangle rect, bool accepted, int markerNumber = 0)
         {
-            if (!accepted) return;
-            try
-            {
-                string line = string.Format("{0} | #{1} | Algorithm={2} | Score={3:F4} | Rect=({4},{5},{6},{7})",
-                    DateTime.Now.ToString("u"), markerNumber, algorithm, score, rect.X, rect.Y, rect.Width, rect.Height);
-                File.AppendAllText(MatchLogPath, line + Environment.NewLine);
-            }
-            catch
-            {
-                // Ignore logging failures.
-            }
+            // Logging disabled
         }
 
         private static void LogMatchHeader(string templateInfo)
         {
-            try
-            {
-                string line = string.Format("{0} | === New Match === | Template={1}",
-                    DateTime.Now.ToString("u"), templateInfo);
-                File.AppendAllText(MatchLogPath, line + Environment.NewLine);
-            }
-            catch { }
+            // Logging disabled
         }
 
         private void StartMatching()
@@ -354,7 +338,6 @@ namespace ScreenCaptureTool
                         g.CopyFromScreen(0, 0, 0, 0, bounds.Size);
                     }
 
-                    LogMatchHeader(string.Format("{0}x{1}", image.Width, image.Height));
                     double threshold = settings.SimilarityThresholdPercent / 100.0;
 
                     // 依次尝试所有算法，累积匹配结果
