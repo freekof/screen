@@ -297,12 +297,13 @@ namespace ScreenCaptureTool
 
         private static readonly string MatchLogPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "match_algorithm.log");
 
-        private static void LogMatch(string algorithm, double score, Rectangle rect, bool accepted)
+        private static void LogMatch(string algorithm, double score, Rectangle rect, bool accepted, int markerNumber = 0)
         {
+            if (!accepted) return;
             try
             {
-                string line = string.Format("{0} | Algorithm={1} | Score={2:F4} | Rect=({3},{4},{5},{6}) | Accepted={7}",
-                    DateTime.Now.ToString("u"), algorithm, score, rect.X, rect.Y, rect.Width, rect.Height, accepted);
+                string line = string.Format("{0} | #{1} | Algorithm={2} | Score={3:F4} | Rect=({4},{5},{6},{7})",
+                    DateTime.Now.ToString("u"), markerNumber, algorithm, score, rect.X, rect.Y, rect.Width, rect.Height);
                 File.AppendAllText(MatchLogPath, line + Environment.NewLine);
             }
             catch
@@ -485,8 +486,13 @@ namespace ScreenCaptureTool
                                 {
                                     // 缩放异常时，仅标记一次
                                     Rectangle rect = new Rectangle((int)minX, (int)minY, (int)Math.Max(1, maxX - minX), (int)Math.Max(1, maxY - minY));
-                                    AddNumberedMarker(rect);
-                                    return 1;
+                                    int markerNo = AddNumberedMarker(rect);
+                                    if (markerNo > 0)
+                                    {
+                                        LogMatch("ORB_Homography", scale, rect, true, markerNo);
+                                        return 1;
+                                    }
+                                    return 0;
                                 }
 
                                 int targetW = Math.Max(8, (int)Math.Round(templateGray.Width * scale));
@@ -504,9 +510,13 @@ namespace ScreenCaptureTool
                                 }
 
                                 Rectangle singleRect = new Rectangle((int)minX, (int)minY, (int)Math.Max(1, maxX - minX), (int)Math.Max(1, maxY - minY));
-                                LogMatch("ORB_Homography", scale, singleRect, true);
-                                AddNumberedMarker(singleRect);
-                                return 1;
+                                int singleMarkerNo = AddNumberedMarker(singleRect);
+                                if (singleMarkerNo > 0)
+                                {
+                                    LogMatch("ORB_Homography", scale, singleRect, true, singleMarkerNo);
+                                    return 1;
+                                }
+                                return 0;
                             }
                         }
                     }
@@ -699,11 +709,14 @@ namespace ScreenCaptureTool
                     }
 
                     Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
-                    LogMatch("Template_Rotated_Masked", maxVal, rect, !IsOverlapping(rect));
                     if (!IsOverlapping(rect))
                     {
-                        count++;
-                        AddNumberedMarker(rect);
+                        int markerNo = AddNumberedMarker(rect);
+                        if (markerNo > 0)
+                        {
+                            count++;
+                            LogMatch("Template_Rotated_Masked", maxVal, rect, true, markerNo);
+                        }
                     }
                     SuppressResultRegion(result, maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height, 0);
                 }
@@ -824,11 +837,14 @@ namespace ScreenCaptureTool
                     if (maxVal >= threshold && count < MaxMatchCount)
                     {
                         Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
-                        LogMatch("Template_CCoeff", maxVal, rect, !IsOverlapping(rect));
                         if (!IsOverlapping(rect))
                         {
-                            count++;
-                            AddNumberedMarker(rect);
+                            int markerNo = AddNumberedMarker(rect);
+                            if (markerNo > 0)
+                            {
+                                count++;
+                                LogMatch("Template_CCoeff", maxVal, rect, true, markerNo);
+                            }
                         }
                         // 清除整个模板大小的矩形区域，防止 1px 偏移重复匹配
                         SuppressResultRegion(result, maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height, 0);
@@ -873,12 +889,14 @@ namespace ScreenCaptureTool
 
                             // 二次验证：检查候选区域的边缘结构是否与模板相似
                             bool verified = VerifyCandidate(screenGray, templateGray, templateEdges, templateEdgeCount, rect);
-                            LogMatch("Template_SqDiff", score, rect, verified && !IsOverlapping(rect));
-
                             if (verified && !IsOverlapping(rect))
                             {
-                                count++;
-                                AddNumberedMarker(rect);
+                                int markerNo = AddNumberedMarker(rect);
+                                if (markerNo > 0)
+                                {
+                                    count++;
+                                    LogMatch("Template_SqDiff", score, rect, true, markerNo);
+                                }
                             }
                             SuppressResultRegion(result, minLoc.X, minLoc.Y, templateGray.Width, templateGray.Height, 1.0);
                         }
@@ -974,16 +992,17 @@ namespace ScreenCaptureTool
             return stddev.Val0 < LowVarianceStdDev;
         }
 
-        private void AddNumberedMarker(Rectangle rect)
+        private int AddNumberedMarker(Rectangle rect)
         {
             if (IsOverlapping(rect))
             {
-                return;
+                return 0;
             }
             markerCount++;
             EnsureMarkerOverlay();
             markerOverlay.AddMarker(rect, markerCount.ToString());
             markerRects.Add(rect);
+            return markerCount;
         }
 
         private Rectangle ScaleRectToLogical(Rectangle rect)
@@ -1111,9 +1130,12 @@ namespace ScreenCaptureTool
                     double histThreshold = Math.Max(0.3, threshold - 0.2);
                     if (bestScore >= histThreshold && !bestRect.IsEmpty)
                     {
-                        LogMatch("Histogram_BEST", bestScore, bestRect, true);
-                        AddNumberedMarker(bestRect);
-                        return 1;
+                        int markerNo = AddNumberedMarker(bestRect);
+                        if (markerNo > 0)
+                        {
+                            LogMatch("Histogram_BEST", bestScore, bestRect, true, markerNo);
+                            return 1;
+                        }
                     }
 
                     if (!bestRect.IsEmpty)
@@ -1173,9 +1195,12 @@ namespace ScreenCaptureTool
                 double pHashThreshold = Math.Max(0.6, threshold - 0.1);
                 if (bestScore >= pHashThreshold && !bestRect.IsEmpty)
                 {
-                    LogMatch("pHash_BEST", bestScore, bestRect, true);
-                    AddNumberedMarker(bestRect);
-                    return 1;
+                    int markerNo = AddNumberedMarker(bestRect);
+                    if (markerNo > 0)
+                    {
+                        LogMatch("pHash_BEST", bestScore, bestRect, true, markerNo);
+                        return 1;
+                    }
                 }
 
                 if (!bestRect.IsEmpty)
@@ -1331,9 +1356,12 @@ namespace ScreenCaptureTool
                 double huThreshold = Math.Max(0.3, threshold - 0.2);
                 if (similarity >= huThreshold && !bestRect.IsEmpty)
                 {
-                    LogMatch("HuMoments_BEST", similarity, bestRect, true);
-                    AddNumberedMarker(bestRect);
-                    return 1;
+                    int markerNo = AddNumberedMarker(bestRect);
+                    if (markerNo > 0)
+                    {
+                        LogMatch("HuMoments_BEST", similarity, bestRect, true, markerNo);
+                        return 1;
+                    }
                 }
             }
 
