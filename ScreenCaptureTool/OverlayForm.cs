@@ -564,10 +564,10 @@ namespace ScreenCaptureTool
                 return 0;
             }
 
-            // 先用原始尺度（scale=1.0）精确匹配（使用完整 Adaptive：CCoeff→SqDiff→Edges）
+            // 先用原始尺度（scale=1.0）精确匹配（使用 Adaptive：CCoeff→Edges）
             int totalCount = MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
 
-            // 多尺度搜索：使用 Adaptive（CCoeff + 通过二次验证的 SqDiff）
+            // 多尺度搜索：使用 Adaptive（CCoeff→Edges）
             double relaxed = Math.Max(0.5, threshold - 0.05);
             // 加细步长，覆盖 0.5~1.5 范围
             double[] scales = new[] {
@@ -601,7 +601,7 @@ namespace ScreenCaptureTool
                 {
                     Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
 
-                    // 多尺度下用 CCoeff + SqDiff（SqDiff 有二次验证，不会误报）
+                    // 多尺度下用 CCoeff + Edges
                     int scaleCount = MatchWithTemplateAdaptive(screenGray, scaledTemplate, relaxed);
                     totalCount += scaleCount;
                 }
@@ -664,12 +664,6 @@ namespace ScreenCaptureTool
             if (!lowVariance)
             {
                 totalCount += MatchWithTemplateCCoeff(screenGray, templateGray, threshold);
-            }
-
-            // SqDiff 现在有二次验证，可以安全使用，但仅在 CCoeff 无结果时
-            if (totalCount == 0)
-            {
-                totalCount += MatchWithTemplateSqDiff(screenGray, templateGray, threshold);
             }
 
             if (totalCount == 0)
@@ -742,118 +736,6 @@ namespace ScreenCaptureTool
 
                 return count;
             }
-        }
-
-        private int MatchWithTemplateSqDiff(Mat screenGray, Mat templateGray, double threshold)
-        {
-            double diffThreshold = Math.Max(0.0, 1.0 - threshold);
-
-            // 预计算模板的边缘特征，用于二次验证
-            using (Mat templateEdges = new Mat())
-            {
-                Cv2.Canny(templateGray, templateEdges, 40, 120);
-                int templateEdgeCount = Cv2.CountNonZero(templateEdges);
-
-                using (Mat result = new Mat())
-                {
-                    Cv2.MatchTemplate(screenGray, templateGray, result, TemplateMatchModes.SqDiffNormed);
-                    Cv2.MinMaxLoc(result, out double sqPeakMin, out _, out OpenCvSharp.Point sqPeakLoc, out _);
-                    LogMatch("Template_SqDiff_Peak", 1.0 - sqPeakMin, new Rectangle(sqPeakLoc.X, sqPeakLoc.Y, templateGray.Width, templateGray.Height), false);
-
-                    int count = 0;
-                    while (true)
-                    {
-                        double minVal, maxVal;
-                        OpenCvSharp.Point minLoc, maxLoc;
-                        Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
-
-                        if (minVal <= diffThreshold && count < MaxMatchCount)
-                        {
-                            Rectangle rect = new Rectangle(minLoc.X, minLoc.Y, templateGray.Width, templateGray.Height);
-                            double score = 1.0 - minVal;
-
-                            // 二次验证：检查候选区域的边缘结构是否与模板相似
-                            bool verified = VerifyCandidate(screenGray, templateGray, templateEdges, templateEdgeCount, rect);
-                            if (verified && !IsOverlapping(rect))
-                            {
-                                int markerNo = AddNumberedMarker(rect);
-                                if (markerNo > 0)
-                                {
-                                    count++;
-                                    LogMatch("Template_SqDiff", score, rect, true, markerNo);
-                                }
-                            }
-                            SuppressResultRegion(result, minLoc.X, minLoc.Y, templateGray.Width, templateGray.Height, 1.0);
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
-
-                    return count;
-                }
-            }
-        }
-
-        /// <summary>
-        /// 二次验证：对 SqDiff 候选区域做边缘+标准差检查，过滤背景噪声误报。
-        /// </summary>
-        private static bool VerifyCandidate(Mat screenGray, Mat templateGray, Mat templateEdges, int templateEdgeCount, Rectangle rect)
-        {
-            // 边界检查
-            if (rect.X < 0 || rect.Y < 0 ||
-                rect.X + rect.Width > screenGray.Width ||
-                rect.Y + rect.Height > screenGray.Height)
-            {
-                return false;
-            }
-
-            using (Mat roiGray = new Mat(screenGray, new OpenCvSharp.Rect(rect.X, rect.Y, rect.Width, rect.Height)))
-            {
-                // 检查1：候选区域的标准差不能太低（排除纯色/渐变背景）
-                Cv2.MeanStdDev(templateGray, out _, out Scalar templateStd);
-                Cv2.MeanStdDev(roiGray, out _, out Scalar roiStd);
-                double stdRatio = roiStd.Val0 / Math.Max(1.0, templateStd.Val0);
-                if (stdRatio < 0.3)
-                {
-                    return false;
-                }
-
-                // 检查2：边缘结构相似性
-                using (Mat roiEdges = new Mat())
-                {
-                    Cv2.Canny(roiGray, roiEdges, 40, 120);
-                    int roiEdgeCount = Cv2.CountNonZero(roiEdges);
-
-                    // 边缘像素数量比例不能差太多
-                    if (templateEdgeCount > 20)
-                    {
-                        double edgeRatio = (double)roiEdgeCount / templateEdgeCount;
-                        if (edgeRatio < 0.3 || edgeRatio > 3.0)
-                        {
-                            return false;
-                        }
-                    }
-
-                    // 检查3：用 CCoeff 对边缘图做快速验证
-                    if (roiEdges.Width == templateEdges.Width && roiEdges.Height == templateEdges.Height)
-                    {
-                        using (Mat edgeResult = new Mat())
-                        {
-                            // 直接比较同尺寸的边缘图
-                            Cv2.MatchTemplate(roiEdges, templateEdges, edgeResult, TemplateMatchModes.CCoeffNormed);
-                            Cv2.MinMaxLoc(edgeResult, out _, out double edgeScore, out _, out _);
-                            if (edgeScore < 0.15)
-                            {
-                                return false;
-                            }
-                        }
-                    }
-                }
-            }
-
-            return true;
         }
 
         private static void SuppressResultRegion(Mat result, int x, int y, int templateW, int templateH, double fillValue)
