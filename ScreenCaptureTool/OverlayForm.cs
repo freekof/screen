@@ -348,23 +348,27 @@ namespace ScreenCaptureTool
                     LogMatchHeader(string.Format("{0}x{1}", image.Width, image.Height));
                     double threshold = settings.SimilarityThresholdPercent / 100.0;
 
-                    // 依次尝试所有算法
+                    // 依次尝试所有算法，累积匹配结果
                     int count = 0;
 
                     // 1) ORB 特征匹配
-                    if (count == 0) count = TryMatchWithOrb(screenBmp);
+                    count += TryMatchWithOrb(screenBmp);
 
-                    // 2) 灰度模板匹配（含多尺度+旋转）
-                    if (count == 0) count = MatchWithTemplate(screenBmp, threshold);
+                    // 2) 灰度模板匹配（含多尺度+旋转）— 最重要的算法，始终运行
+                    if (count < MaxMatchCount)
+                        count += MatchWithTemplate(screenBmp, threshold);
 
-                    // 3) HSV 色彩直方图滑窗
-                    if (count == 0) count = TryMatchWithHistogram(screenBmp, threshold);
+                    // 3) HSV 色彩直方图滑窗 — 仅在前面算法未找到足够结果时尝试
+                    if (count < 2)
+                        count += TryMatchWithHistogram(screenBmp, threshold);
 
                     // 4) pHash 多尺度滑窗
-                    if (count == 0) count = TryMatchWithPHash(screenBmp, threshold);
+                    if (count < 2)
+                        count += TryMatchWithPHash(screenBmp, threshold);
 
                     // 5) Hu 矩形状匹配（轮廓）
-                    if (count == 0) count = TryMatchWithHuMoments(screenBmp, threshold);
+                    if (count < 2)
+                        count += TryMatchWithHuMoments(screenBmp, threshold);
 
                     if (count == 0)
                     {
@@ -525,20 +529,22 @@ namespace ScreenCaptureTool
 
         private int MatchWithTemplate(Mat screenGray, Mat templateGray, double threshold)
         {
+            int totalCount = 0;
             using (Mat trimmedTemplate = TrimWhiteBorder(templateGray))
             {
                 bool trimmed = trimmedTemplate.Width < templateGray.Width || trimmedTemplate.Height < templateGray.Height;
                 if (trimmed)
                 {
-                    int trimmedCount = MatchWithTemplateCore(screenGray, trimmedTemplate, threshold);
-                    if (trimmedCount > 0)
-                    {
-                        return trimmedCount;
-                    }
+                    totalCount += MatchWithTemplateCore(screenGray, trimmedTemplate, threshold);
                 }
             }
 
-            return MatchWithTemplateCore(screenGray, templateGray, threshold);
+            if (totalCount < MaxMatchCount)
+            {
+                totalCount += MatchWithTemplateCore(screenGray, templateGray, threshold);
+            }
+
+            return totalCount;
         }
 
         private int MatchWithTemplateCore(Mat screenGray, Mat templateGray, double threshold)
@@ -547,17 +553,18 @@ namespace ScreenCaptureTool
             {
                 return 0;
             }
-            int count = MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
-            if (count > 0)
-            {
-                return count;
-            }
 
+            // 先用原始尺度（scale=1.0）精确匹配
+            int totalCount = MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
+
+            // 无论是否在 scale=1.0 找到匹配，继续搜索其他尺度以发现不同大小的相似图
             double relaxed = Math.Max(0.5, threshold - 0.03);
-            double[] scales = new[] { 1.0, 0.9, 1.1, 0.8, 1.2, 0.7, 1.3, 0.6, 1.4, 0.5, 1.5 };
+            double[] scales = new[] { 0.9, 1.1, 0.8, 1.2, 0.7, 1.3, 0.6, 1.4, 0.5, 1.5 };
             double[] angles = new[] { -30.0, -24.0, -18.0, -12.0, -6.0, 6.0, 12.0, 18.0, 24.0, 30.0 };
             for (int i = 0; i < scales.Length; i++)
             {
+                if (totalCount >= MaxMatchCount) break;
+
                 int targetW = (int)Math.Round(templateGray.Width * scales[i]);
                 int targetH = (int)Math.Round(templateGray.Height * scales[i]);
                 if (targetW < 8 || targetH < 8)
@@ -571,38 +578,33 @@ namespace ScreenCaptureTool
 
                 using (Mat scaledTemplate = new Mat())
                 {
-                    if (Math.Abs(scales[i] - 1.0) < 0.001)
-                    {
-                        templateGray.CopyTo(scaledTemplate);
-                    }
-                    else
-                    {
-                        Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
-                    }
+                    Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
 
-                    count = MatchWithTemplateAdaptive(screenGray, scaledTemplate, relaxed);
-                    if (count > 0)
-                    {
-                        return count;
-                    }
+                    int scaleCount = MatchWithTemplateAdaptive(screenGray, scaledTemplate, relaxed);
+                    totalCount += scaleCount;
 
-                    count = MatchWithTemplateRotations(screenGray, scaledTemplate, relaxed, angles);
-                    if (count > 0)
-                    {
-                        return count;
-                    }
+                    if (totalCount >= MaxMatchCount) break;
+
+                    int rotCount = MatchWithTemplateRotations(screenGray, scaledTemplate, relaxed, angles);
+                    totalCount += rotCount;
                 }
             }
 
-            return 0;
+            return totalCount;
         }
 
         private int MatchWithTemplateRotations(Mat screenGray, Mat templateGray, double threshold, double[] angles)
         {
+            int totalCount = 0;
             for (int i = 0; i < angles.Length; i++)
             {
-                using (Mat rotatedTemplate = RotateTemplate(templateGray, angles[i]))
+                if (totalCount >= MaxMatchCount) break;
+
+                using (Mat rotatedTemplate = new Mat())
+                using (Mat rotatedMask = new Mat())
                 {
+                    RotateTemplateWithMask(templateGray, angles[i], rotatedTemplate, rotatedMask);
+
                     if (rotatedTemplate.Width < 8 || rotatedTemplate.Height < 8)
                     {
                         continue;
@@ -612,18 +614,15 @@ namespace ScreenCaptureTool
                         continue;
                     }
 
-                    int count = MatchWithTemplateAdaptive(screenGray, rotatedTemplate, threshold);
-                    if (count > 0)
-                    {
-                        return count;
-                    }
+                    int count = MatchWithTemplateMasked(screenGray, rotatedTemplate, rotatedMask, threshold);
+                    totalCount += count;
                 }
             }
 
-            return 0;
+            return totalCount;
         }
 
-        private static Mat RotateTemplate(Mat src, double angle)
+        private static void RotateTemplateWithMask(Mat src, double angle, Mat dst, Mat mask)
         {
             Point2f center = new Point2f(src.Width / 2f, src.Height / 2f);
             using (Mat rot = Cv2.GetRotationMatrix2D(center, angle, 1.0))
@@ -639,9 +638,64 @@ namespace ScreenCaptureTool
                 rot.Set(0, 2, tx);
                 rot.Set(1, 2, ty);
 
-                Mat dst = new Mat();
-                Cv2.WarpAffine(src, dst, rot, new OpenCvSharp.Size(boundW, boundH), InterpolationFlags.Linear, BorderTypes.Constant, new Scalar(255));
-                return dst;
+                // 旋转模板图像，填充区域用 0（黑色）
+                Cv2.WarpAffine(src, dst, rot, new OpenCvSharp.Size(boundW, boundH),
+                    InterpolationFlags.Linear, BorderTypes.Constant, new Scalar(0));
+
+                // 生成 mask：原始区域全白，旋转后填充区域为黑
+                using (Mat ones = Mat.Ones(src.Height, src.Width, MatType.CV_8UC1) * 255)
+                {
+                    Cv2.WarpAffine(ones, mask, rot, new OpenCvSharp.Size(boundW, boundH),
+                        InterpolationFlags.Linear, BorderTypes.Constant, new Scalar(0));
+                    // 二值化确保 mask 干净（插值可能产生中间值）
+                    Cv2.Threshold(mask, mask, 128, 255, ThresholdTypes.Binary);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 带 mask 的模板匹配：只比较 mask 中有效（非零）的像素区域。
+        /// 用于旋转后的模板匹配，排除旋转产生的填充边界。
+        /// </summary>
+        private int MatchWithTemplateMasked(Mat screenGray, Mat templateGray, Mat mask, double threshold)
+        {
+            if (screenGray.Width < templateGray.Width || screenGray.Height < templateGray.Height)
+            {
+                return 0;
+            }
+
+            using (Mat result = new Mat())
+            {
+                // CCoeffNormed 支持 mask 参数
+                Cv2.MatchTemplate(screenGray, templateGray, result, TemplateMatchModes.CCoeffNormed, mask);
+                Cv2.MinMaxLoc(result, out _, out double peakVal, out _, out OpenCvSharp.Point peakLoc);
+                LogMatch("Template_Rotated_Masked_Peak", peakVal,
+                    new Rectangle(peakLoc.X, peakLoc.Y, templateGray.Width, templateGray.Height), false);
+
+                Cv2.Threshold(result, result, threshold, 1.0, ThresholdTypes.Tozero);
+
+                int count = 0;
+                while (count < MaxMatchCount)
+                {
+                    double minVal, maxVal;
+                    OpenCvSharp.Point minLoc, maxLoc;
+                    Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
+                    if (double.IsNaN(maxVal) || maxVal < threshold)
+                    {
+                        break;
+                    }
+
+                    Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
+                    LogMatch("Template_Rotated_Masked", maxVal, rect, !IsOverlapping(rect));
+                    if (!IsOverlapping(rect))
+                    {
+                        count++;
+                        AddNumberedMarker(rect);
+                    }
+                    SuppressResultRegion(result, maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height, 0);
+                }
+
+                return count;
             }
         }
 
@@ -694,23 +748,26 @@ namespace ScreenCaptureTool
 
         private int MatchWithTemplateAdaptive(Mat screenGray, Mat templateGray, double threshold)
         {
+            int totalCount = 0;
             bool lowVariance = IsLowVariance(templateGray);
             if (!lowVariance)
             {
-                int count = MatchWithTemplateCCoeff(screenGray, templateGray, threshold);
-                if (count > 0)
-                {
-                    return count;
-                }
+                totalCount += MatchWithTemplateCCoeff(screenGray, templateGray, threshold);
             }
 
-            int sqDiffCount = MatchWithTemplateSqDiff(screenGray, templateGray, threshold);
-            if (sqDiffCount > 0)
+            // SqDiff 和 Edges 在同尺度下大概率找到与 CCoeff 相同的位置，
+            // 如果 CCoeff 已经有结果则跳过，避免无意义的重复计算
+            if (totalCount == 0)
             {
-                return sqDiffCount;
+                totalCount += MatchWithTemplateSqDiff(screenGray, templateGray, threshold);
             }
 
-            return MatchWithTemplateByEdges(screenGray, templateGray, threshold);
+            if (totalCount == 0)
+            {
+                totalCount += MatchWithTemplateByEdges(screenGray, templateGray, threshold);
+            }
+
+            return totalCount;
         }
 
         private int MatchWithTemplateByEdges(Mat screenGray, Mat templateGray, double threshold)
@@ -728,13 +785,14 @@ namespace ScreenCaptureTool
                 }
 
                 double edgeThreshold = Math.Max(0.4, threshold - 0.12);
-                int ccoeffCount = MatchWithTemplateCCoeff(screenEdges, templateEdges, edgeThreshold);
-                if (ccoeffCount > 0)
+                int totalCount = MatchWithTemplateCCoeff(screenEdges, templateEdges, edgeThreshold);
+
+                if (totalCount < MaxMatchCount)
                 {
-                    return ccoeffCount;
+                    totalCount += MatchWithTemplateSqDiff(screenEdges, templateEdges, edgeThreshold);
                 }
 
-                return MatchWithTemplateSqDiff(screenEdges, templateEdges, edgeThreshold);
+                return totalCount;
             }
         }
 
