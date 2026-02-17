@@ -592,8 +592,8 @@ namespace ScreenCaptureTool
                 {
                     Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
 
-                    // 多尺度下只用 CCoeff，避免 SqDiff 的大量误报
-                    int scaleCount = MatchWithTemplateCCoeff(screenGray, scaledTemplate, relaxed);
+                    // 多尺度下用 CCoeff + SqDiff（SqDiff 有二次验证，不会误报）
+                    int scaleCount = MatchWithTemplateAdaptive(screenGray, scaledTemplate, relaxed);
                     totalCount += scaleCount;
 
                     if (totalCount >= MaxMatchCount) break;
@@ -768,11 +768,10 @@ namespace ScreenCaptureTool
                 totalCount += MatchWithTemplateCCoeff(screenGray, templateGray, threshold);
             }
 
-            // SqDiff 误报率高，仅在 CCoeff 无结果时使用，且提高阈值
+            // SqDiff 现在有二次验证，可以安全使用，但仅在 CCoeff 无结果时
             if (totalCount == 0)
             {
-                double sqDiffThreshold = Math.Max(threshold, 0.96);
-                totalCount += MatchWithTemplateSqDiff(screenGray, templateGray, sqDiffThreshold);
+                totalCount += MatchWithTemplateSqDiff(screenGray, templateGray, threshold);
             }
 
             if (totalCount == 0)
@@ -847,39 +846,111 @@ namespace ScreenCaptureTool
         private int MatchWithTemplateSqDiff(Mat screenGray, Mat templateGray, double threshold)
         {
             double diffThreshold = Math.Max(0.0, 1.0 - threshold);
-            using (Mat result = new Mat())
+
+            // 预计算模板的边缘特征，用于二次验证
+            using (Mat templateEdges = new Mat())
             {
-                Cv2.MatchTemplate(screenGray, templateGray, result, TemplateMatchModes.SqDiffNormed);
-                Cv2.MinMaxLoc(result, out double sqPeakMin, out _, out OpenCvSharp.Point sqPeakLoc, out _);
-                LogMatch("Template_SqDiff_Peak", 1.0 - sqPeakMin, new Rectangle(sqPeakLoc.X, sqPeakLoc.Y, templateGray.Width, templateGray.Height), false);
+                Cv2.Canny(templateGray, templateEdges, 40, 120);
+                int templateEdgeCount = Cv2.CountNonZero(templateEdges);
 
-                int count = 0;
-                while (true)
+                using (Mat result = new Mat())
                 {
-                    double minVal, maxVal;
-                    OpenCvSharp.Point minLoc, maxLoc;
-                    Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
+                    Cv2.MatchTemplate(screenGray, templateGray, result, TemplateMatchModes.SqDiffNormed);
+                    Cv2.MinMaxLoc(result, out double sqPeakMin, out _, out OpenCvSharp.Point sqPeakLoc, out _);
+                    LogMatch("Template_SqDiff_Peak", 1.0 - sqPeakMin, new Rectangle(sqPeakLoc.X, sqPeakLoc.Y, templateGray.Width, templateGray.Height), false);
 
-                    if (minVal <= diffThreshold && count < MaxMatchCount)
+                    int count = 0;
+                    while (true)
                     {
-                        Rectangle rect = new Rectangle(minLoc.X, minLoc.Y, templateGray.Width, templateGray.Height);
-                        LogMatch("Template_SqDiff", 1.0 - minVal, rect, !IsOverlapping(rect));
-                        if (!IsOverlapping(rect))
+                        double minVal, maxVal;
+                        OpenCvSharp.Point minLoc, maxLoc;
+                        Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
+
+                        if (minVal <= diffThreshold && count < MaxMatchCount)
                         {
-                            count++;
-                            AddNumberedMarker(rect);
+                            Rectangle rect = new Rectangle(minLoc.X, minLoc.Y, templateGray.Width, templateGray.Height);
+                            double score = 1.0 - minVal;
+
+                            // 二次验证：检查候选区域的边缘结构是否与模板相似
+                            bool verified = VerifyCandidate(screenGray, templateGray, templateEdges, templateEdgeCount, rect);
+                            LogMatch("Template_SqDiff", score, rect, verified && !IsOverlapping(rect));
+
+                            if (verified && !IsOverlapping(rect))
+                            {
+                                count++;
+                                AddNumberedMarker(rect);
+                            }
+                            SuppressResultRegion(result, minLoc.X, minLoc.Y, templateGray.Width, templateGray.Height, 1.0);
                         }
-                        // 清除整个模板大小的矩形区域
-                        SuppressResultRegion(result, minLoc.X, minLoc.Y, templateGray.Width, templateGray.Height, 1.0);
+                        else
+                        {
+                            break;
+                        }
                     }
-                    else
-                    {
-                        break;
-                    }
+
+                    return count;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 二次验证：对 SqDiff 候选区域做边缘+标准差检查，过滤背景噪声误报。
+        /// </summary>
+        private static bool VerifyCandidate(Mat screenGray, Mat templateGray, Mat templateEdges, int templateEdgeCount, Rectangle rect)
+        {
+            // 边界检查
+            if (rect.X < 0 || rect.Y < 0 ||
+                rect.X + rect.Width > screenGray.Width ||
+                rect.Y + rect.Height > screenGray.Height)
+            {
+                return false;
+            }
+
+            using (Mat roiGray = new Mat(screenGray, new OpenCvSharp.Rect(rect.X, rect.Y, rect.Width, rect.Height)))
+            {
+                // 检查1：候选区域的标准差不能太低（排除纯色/渐变背景）
+                Cv2.MeanStdDev(templateGray, out _, out Scalar templateStd);
+                Cv2.MeanStdDev(roiGray, out _, out Scalar roiStd);
+                double stdRatio = roiStd.Val0 / Math.Max(1.0, templateStd.Val0);
+                if (stdRatio < 0.3)
+                {
+                    return false;
                 }
 
-                return count;
+                // 检查2：边缘结构相似性
+                using (Mat roiEdges = new Mat())
+                {
+                    Cv2.Canny(roiGray, roiEdges, 40, 120);
+                    int roiEdgeCount = Cv2.CountNonZero(roiEdges);
+
+                    // 边缘像素数量比例不能差太多
+                    if (templateEdgeCount > 20)
+                    {
+                        double edgeRatio = (double)roiEdgeCount / templateEdgeCount;
+                        if (edgeRatio < 0.3 || edgeRatio > 3.0)
+                        {
+                            return false;
+                        }
+                    }
+
+                    // 检查3：用 CCoeff 对边缘图做快速验证
+                    if (roiEdges.Width == templateEdges.Width && roiEdges.Height == templateEdges.Height)
+                    {
+                        using (Mat edgeResult = new Mat())
+                        {
+                            // 直接比较同尺寸的边缘图
+                            Cv2.MatchTemplate(roiEdges, templateEdges, edgeResult, TemplateMatchModes.CCoeffNormed);
+                            Cv2.MinMaxLoc(edgeResult, out _, out double edgeScore, out _, out _);
+                            if (edgeScore < 0.15)
+                            {
+                                return false;
+                            }
+                        }
+                    }
+                }
             }
+
+            return true;
         }
 
         private static void SuppressResultRegion(Mat result, int x, int y, int templateW, int templateH, double fillValue)
