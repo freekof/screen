@@ -29,7 +29,7 @@ namespace ScreenCaptureTool
         private const int MinImageScale = 20;
         private const int MaxImageScale = 500;
         private const int MaxMatchCount = 50;
-        private const int FastExitMatchCount = 2;
+        private const int FastExitMatchCount = 5;
         private const int OrbMinTemplateArea = 12000;
         private const double LowVarianceStdDev = 5.0;
         private int imageScale = 100;
