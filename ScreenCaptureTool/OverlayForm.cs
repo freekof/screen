@@ -27,14 +27,16 @@ namespace ScreenCaptureTool
         private int markerCount = 0;
         private List<Rectangle> markerRects = new List<Rectangle>();
         private Mat activeScreenHsv;
-        private Scalar templateMeanHsv;
-        private bool hasTemplateMeanHsv = false;
+        private Mat templateColorHist;
+        private int templateForegroundPixels = 0;
+        private bool hasTemplateColorModel = false;
         private const int MinImageScale = 20;
         private const int MaxImageScale = 500;
         private const int MaxMatchCount = 50;
         private const int FastExitMatchCount = 5;
         private const int OrbMinTemplateArea = 12000;
         private const double ColorSimilarityThreshold = 0.5;
+        private const int MinColorForegroundPixels = 25;
         private const double LowVarianceStdDev = 5.0;
         private int imageScale = 100;
         private float DpiScale => Math.Max(1.0f, this.DeviceDpi / 96f);
@@ -798,6 +800,7 @@ namespace ScreenCaptureTool
             using (Mat screenBgr = new Mat())
             using (Mat templateBgr = new Mat())
             using (Mat templateHsv = new Mat())
+            using (Mat templateMask = new Mat())
             {
                 if (screenMat.Channels() == 4)
                 {
@@ -821,8 +824,20 @@ namespace ScreenCaptureTool
                 Cv2.CvtColor(screenBgr, activeScreenHsv, ColorConversionCodes.BGR2HSV);
 
                 Cv2.CvtColor(templateBgr, templateHsv, ColorConversionCodes.BGR2HSV);
-                templateMeanHsv = Cv2.Mean(templateHsv);
-                hasTemplateMeanHsv = true;
+                BuildForegroundMask(templateHsv, templateMask);
+                templateForegroundPixels = Cv2.CountNonZero(templateMask);
+                if (templateForegroundPixels < MinColorForegroundPixels)
+                {
+                    return;
+                }
+
+                int[] channels = { 0, 1 };
+                int[] histSize = { 30, 32 };
+                Rangef[] ranges = { new Rangef(0, 180), new Rangef(0, 256) };
+                templateColorHist = new Mat();
+                Cv2.CalcHist(new[] { templateHsv }, channels, templateMask, templateColorHist, 2, histSize, ranges);
+                Cv2.Normalize(templateColorHist, templateColorHist, 0, 1, NormTypes.MinMax);
+                hasTemplateColorModel = true;
             }
         }
 
@@ -833,13 +848,20 @@ namespace ScreenCaptureTool
                 activeScreenHsv.Dispose();
                 activeScreenHsv = null;
             }
-            hasTemplateMeanHsv = false;
-            templateMeanHsv = default(Scalar);
+
+            if (templateColorHist != null)
+            {
+                templateColorHist.Dispose();
+                templateColorHist = null;
+            }
+
+            templateForegroundPixels = 0;
+            hasTemplateColorModel = false;
         }
 
         private bool PassesColorValidation(Rectangle rect)
         {
-            if (activeScreenHsv == null || activeScreenHsv.Empty() || !hasTemplateMeanHsv)
+            if (activeScreenHsv == null || activeScreenHsv.Empty() || !hasTemplateColorModel || templateColorHist == null)
             {
                 return true;
             }
@@ -852,16 +874,39 @@ namespace ScreenCaptureTool
             }
 
             using (Mat roi = new Mat(activeScreenHsv, new OpenCvSharp.Rect(rect.X, rect.Y, rect.Width, rect.Height)))
+            using (Mat roiMask = new Mat())
+            using (Mat roiHist = new Mat())
             {
-                Scalar roiMean = Cv2.Mean(roi);
+                BuildForegroundMask(roi, roiMask);
+                int roiForegroundPixels = Cv2.CountNonZero(roiMask);
+                int minRequired = Math.Max(MinColorForegroundPixels, (int)Math.Round(templateForegroundPixels * 0.25));
+                if (roiForegroundPixels < minRequired)
+                {
+                    return false;
+                }
 
-                double hueDiff = Math.Abs(roiMean.Val0 - templateMeanHsv.Val0);
-                hueDiff = Math.Min(hueDiff, 180.0 - hueDiff) / 90.0;
-                double satDiff = Math.Abs(roiMean.Val1 - templateMeanHsv.Val1) / 255.0;
-                double valDiff = Math.Abs(roiMean.Val2 - templateMeanHsv.Val2) / 255.0;
+                int[] channels = { 0, 1 };
+                int[] histSize = { 30, 32 };
+                Rangef[] ranges = { new Rangef(0, 180), new Rangef(0, 256) };
+                Cv2.CalcHist(new[] { roi }, channels, roiMask, roiHist, 2, histSize, ranges);
+                Cv2.Normalize(roiHist, roiHist, 0, 1, NormTypes.MinMax);
 
-                double similarity = 1.0 - (0.5 * hueDiff + 0.3 * satDiff + 0.2 * valDiff);
+                double similarity = Cv2.CompareHist(templateColorHist, roiHist, HistCompMethods.Correl);
+                if (double.IsNaN(similarity))
+                {
+                    return false;
+                }
+
                 return similarity >= ColorSimilarityThreshold;
+            }
+        }
+
+        private static void BuildForegroundMask(Mat hsv, Mat mask)
+        {
+            using (Mat whiteMask = new Mat())
+            {
+                Cv2.InRange(hsv, new Scalar(0, 0, 230), new Scalar(180, 40, 255), whiteMask);
+                Cv2.BitwiseNot(whiteMask, mask);
             }
         }
 
