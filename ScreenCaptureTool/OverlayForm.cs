@@ -26,11 +26,15 @@ namespace ScreenCaptureTool
         private MarkerOverlayForm markerOverlay;
         private int markerCount = 0;
         private List<Rectangle> markerRects = new List<Rectangle>();
+        private Mat activeScreenHsv;
+        private Scalar templateMeanHsv;
+        private bool hasTemplateMeanHsv = false;
         private const int MinImageScale = 20;
         private const int MaxImageScale = 500;
         private const int MaxMatchCount = 50;
         private const int FastExitMatchCount = 5;
         private const int OrbMinTemplateArea = 12000;
+        private const double ColorSimilarityThreshold = 0.5;
         private const double LowVarianceStdDev = 5.0;
         private int imageScale = 100;
         private float DpiScale => Math.Max(1.0f, this.DeviceDpi / 96f);
@@ -363,16 +367,16 @@ namespace ScreenCaptureTool
                     if (count < FastExitMatchCount)
                         count += MatchWithTemplate(screenBmp, threshold);
 
-                    // 3) HSV 色彩直方图滑窗 — 仅在前面算法未找到足够结果时尝试
-                    if (count < FastExitMatchCount)
+                    // 3) HSV 色彩直方图滑窗 — 仅在模板匹配完全失败时作为兜底
+                    if (count == 0)
                         count += TryMatchWithHistogram(screenBmp, threshold);
 
                     // 4) pHash 多尺度滑窗
-                    if (count < FastExitMatchCount)
+                    if (count == 0)
                         count += TryMatchWithPHash(screenBmp, threshold);
 
                     // 5) Hu 矩形状匹配（轮廓）
-                    if (count < FastExitMatchCount)
+                    if (count == 0)
                         count += TryMatchWithHuMoments(screenBmp, threshold);
 
                     if (count == 0)
@@ -535,9 +539,17 @@ namespace ScreenCaptureTool
             using (Mat screenGray = new Mat())
             using (Mat templateGray = new Mat())
             {
+                PrepareColorValidation(screenMat, templateMat);
                 ConvertToGray(screenMat, screenGray);
                 ConvertToGray(templateMat, templateGray);
-                return MatchWithTemplate(screenGray, templateGray, threshold);
+                try
+                {
+                    return MatchWithTemplate(screenGray, templateGray, threshold);
+                }
+                finally
+                {
+                    ClearColorValidation();
+                }
             }
         }
 
@@ -735,7 +747,8 @@ namespace ScreenCaptureTool
                     if (maxVal >= threshold)
                     {
                         Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
-                        if (!IsOverlapping(rect))
+                        bool colorOk = PassesColorValidation(rect);
+                        if (colorOk && !IsOverlapping(rect))
                         {
                             int markerNo = AddNumberedMarker(rect);
                             if (markerNo > 0)
@@ -776,6 +789,80 @@ namespace ScreenCaptureTool
         {
             Cv2.MeanStdDev(templateGray, out _, out Scalar stddev);
             return stddev.Val0 < LowVarianceStdDev;
+        }
+
+        private void PrepareColorValidation(Mat screenMat, Mat templateMat)
+        {
+            ClearColorValidation();
+
+            using (Mat screenBgr = new Mat())
+            using (Mat templateBgr = new Mat())
+            using (Mat templateHsv = new Mat())
+            {
+                if (screenMat.Channels() == 4)
+                {
+                    Cv2.CvtColor(screenMat, screenBgr, ColorConversionCodes.BGRA2BGR);
+                }
+                else
+                {
+                    screenMat.CopyTo(screenBgr);
+                }
+
+                if (templateMat.Channels() == 4)
+                {
+                    Cv2.CvtColor(templateMat, templateBgr, ColorConversionCodes.BGRA2BGR);
+                }
+                else
+                {
+                    templateMat.CopyTo(templateBgr);
+                }
+
+                activeScreenHsv = new Mat();
+                Cv2.CvtColor(screenBgr, activeScreenHsv, ColorConversionCodes.BGR2HSV);
+
+                Cv2.CvtColor(templateBgr, templateHsv, ColorConversionCodes.BGR2HSV);
+                templateMeanHsv = Cv2.Mean(templateHsv);
+                hasTemplateMeanHsv = true;
+            }
+        }
+
+        private void ClearColorValidation()
+        {
+            if (activeScreenHsv != null)
+            {
+                activeScreenHsv.Dispose();
+                activeScreenHsv = null;
+            }
+            hasTemplateMeanHsv = false;
+            templateMeanHsv = default(Scalar);
+        }
+
+        private bool PassesColorValidation(Rectangle rect)
+        {
+            if (activeScreenHsv == null || activeScreenHsv.Empty() || !hasTemplateMeanHsv)
+            {
+                return true;
+            }
+
+            if (rect.X < 0 || rect.Y < 0 ||
+                rect.X + rect.Width > activeScreenHsv.Width ||
+                rect.Y + rect.Height > activeScreenHsv.Height)
+            {
+                return false;
+            }
+
+            using (Mat roi = new Mat(activeScreenHsv, new OpenCvSharp.Rect(rect.X, rect.Y, rect.Width, rect.Height)))
+            {
+                Scalar roiMean = Cv2.Mean(roi);
+
+                double hueDiff = Math.Abs(roiMean.Val0 - templateMeanHsv.Val0);
+                hueDiff = Math.Min(hueDiff, 180.0 - hueDiff) / 90.0;
+                double satDiff = Math.Abs(roiMean.Val1 - templateMeanHsv.Val1) / 255.0;
+                double valDiff = Math.Abs(roiMean.Val2 - templateMeanHsv.Val2) / 255.0;
+
+                double similarity = 1.0 - (0.5 * hueDiff + 0.3 * satDiff + 0.2 * valDiff);
+                return similarity >= ColorSimilarityThreshold;
+            }
         }
 
         private bool ReachedTargetMatchCount()
@@ -1175,6 +1262,7 @@ namespace ScreenCaptureTool
             if (disposing)
             {
                 CloseAllMarkers();
+                ClearColorValidation();
                 image?.Dispose();
             }
             lock (OpenSync)
