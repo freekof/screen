@@ -29,6 +29,8 @@ namespace ScreenCaptureTool
         private const int MinImageScale = 20;
         private const int MaxImageScale = 500;
         private const int MaxMatchCount = 50;
+        private const int FastExitMatchCount = 2;
+        private const int OrbMinTemplateArea = 12000;
         private const double LowVarianceStdDev = 5.0;
         private int imageScale = 100;
         private float DpiScale => Math.Max(1.0f, this.DeviceDpi / 96f);
@@ -352,23 +354,25 @@ namespace ScreenCaptureTool
                     // 依次尝试所有算法，累积匹配结果
                     int count = 0;
 
-                    // 1) ORB 特征匹配
-                    count += TryMatchWithOrb(screenBmp);
+                    // 1) ORB 特征匹配（小模板上命中率低且耗时高，直接跳过）
+                    int templateArea = image.Width * image.Height;
+                    if (templateArea >= OrbMinTemplateArea)
+                        count += TryMatchWithOrb(screenBmp);
 
-                    // 2) 灰度模板匹配（含多尺度+旋转）— 最重要的算法，始终运行
-                    if (count < MaxMatchCount)
+                    // 2) 灰度模板匹配（多尺度）— 主路径
+                    if (count < FastExitMatchCount)
                         count += MatchWithTemplate(screenBmp, threshold);
 
                     // 3) HSV 色彩直方图滑窗 — 仅在前面算法未找到足够结果时尝试
-                    if (count < 2)
+                    if (count < FastExitMatchCount)
                         count += TryMatchWithHistogram(screenBmp, threshold);
 
                     // 4) pHash 多尺度滑窗
-                    if (count < 2)
+                    if (count < FastExitMatchCount)
                         count += TryMatchWithPHash(screenBmp, threshold);
 
                     // 5) Hu 矩形状匹配（轮廓）
-                    if (count < 2)
+                    if (count < FastExitMatchCount)
                         count += TryMatchWithHuMoments(screenBmp, threshold);
 
                     if (count == 0)
@@ -549,6 +553,11 @@ namespace ScreenCaptureTool
                 }
             }
 
+            if (ReachedTargetMatchCount() || totalCount >= FastExitMatchCount)
+            {
+                return totalCount;
+            }
+
             if (totalCount < MaxMatchCount)
             {
                 totalCount += MatchWithTemplateCore(screenGray, templateGray, threshold);
@@ -567,24 +576,24 @@ namespace ScreenCaptureTool
             // 先用原始尺度（scale=1.0）精确匹配（使用 Adaptive：CCoeff→Edges）
             int totalCount = MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
 
-            // 多尺度搜索：使用 Adaptive（CCoeff→Edges）
+            if (ReachedTargetMatchCount() || totalCount >= FastExitMatchCount)
+            {
+                return totalCount;
+            }
+
+            // 多尺度搜索：以 CCoeff 为主，优先速度
             double relaxed = Math.Max(0.5, threshold - 0.05);
-            // 加细步长，覆盖 0.5~1.5 范围
+            // 优先尝试接近原图的尺度，命中后立即退出
             double[] scales = new[] {
                 0.95, 1.05,
                 0.9, 1.1,
                 0.85, 1.15,
                 0.8, 1.2,
-                0.75, 1.25,
-                0.7, 1.3,
-                0.65, 1.35,
-                0.6, 1.4,
-                0.55, 1.45,
-                0.5, 1.5
+                0.75, 1.25
             };
             for (int i = 0; i < scales.Length; i++)
             {
-                if (totalCount >= MaxMatchCount) break;
+                if (totalCount >= MaxMatchCount || ReachedTargetMatchCount() || totalCount >= FastExitMatchCount) break;
 
                 int targetW = (int)Math.Round(templateGray.Width * scales[i]);
                 int targetH = (int)Math.Round(templateGray.Height * scales[i]);
@@ -601,8 +610,8 @@ namespace ScreenCaptureTool
                 {
                     Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
 
-                    // 多尺度下用 CCoeff + Edges
-                    int scaleCount = MatchWithTemplateAdaptive(screenGray, scaledTemplate, relaxed);
+                    // 多尺度只跑 CCoeff，避免 Edges 在每个尺度上的额外成本
+                    int scaleCount = MatchWithTemplateCCoeff(screenGray, scaledTemplate, relaxed);
                     totalCount += scaleCount;
                 }
             }
@@ -676,6 +685,11 @@ namespace ScreenCaptureTool
 
         private int MatchWithTemplateByEdges(Mat screenGray, Mat templateGray, double threshold)
         {
+            if (ReachedTargetMatchCount())
+            {
+                return 0;
+            }
+
             using (Mat screenEdges = new Mat())
             using (Mat templateEdges = new Mat())
             {
@@ -695,6 +709,11 @@ namespace ScreenCaptureTool
 
         private int MatchWithTemplateCCoeff(Mat screenGray, Mat templateGray, double threshold)
         {
+            if (ReachedTargetMatchCount())
+            {
+                return 0;
+            }
+
             using (Mat result = new Mat())
             {
                 Cv2.MatchTemplate(screenGray, templateGray, result, TemplateMatchModes.CCoeffNormed);
@@ -703,7 +722,7 @@ namespace ScreenCaptureTool
                 Cv2.Threshold(result, result, threshold, 1.0, ThresholdTypes.Tozero);
 
                 int count = 0;
-                while (true)
+                while (count < MaxMatchCount && !ReachedTargetMatchCount())
                 {
                     double minVal, maxVal;
                     OpenCvSharp.Point minLoc, maxLoc;
@@ -713,7 +732,7 @@ namespace ScreenCaptureTool
                         return count;
                     }
 
-                    if (maxVal >= threshold && count < MaxMatchCount)
+                    if (maxVal >= threshold)
                     {
                         Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
                         if (!IsOverlapping(rect))
@@ -757,6 +776,11 @@ namespace ScreenCaptureTool
         {
             Cv2.MeanStdDev(templateGray, out _, out Scalar stddev);
             return stddev.Val0 < LowVarianceStdDev;
+        }
+
+        private bool ReachedTargetMatchCount()
+        {
+            return markerCount >= FastExitMatchCount;
         }
 
         private int AddNumberedMarker(Rectangle rect)
