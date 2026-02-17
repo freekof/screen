@@ -567,7 +567,7 @@ namespace ScreenCaptureTool
             // 先用原始尺度（scale=1.0）精确匹配（使用完整 Adaptive：CCoeff→SqDiff→Edges）
             int totalCount = MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
 
-            // 多尺度搜索：只用 CCoeff（SqDiff 在不同尺度下误报率极高）
+            // 多尺度搜索：使用 Adaptive（CCoeff + 通过二次验证的 SqDiff）
             double relaxed = Math.Max(0.5, threshold - 0.05);
             // 加细步长，覆盖 0.5~1.5 范围
             double[] scales = new[] {
@@ -582,7 +582,6 @@ namespace ScreenCaptureTool
                 0.55, 1.45,
                 0.5, 1.5
             };
-            double[] angles = new[] { -30.0, -24.0, -18.0, -12.0, -6.0, 6.0, 12.0, 18.0, 24.0, 30.0 };
             for (int i = 0; i < scales.Length; i++)
             {
                 if (totalCount >= MaxMatchCount) break;
@@ -605,124 +604,10 @@ namespace ScreenCaptureTool
                     // 多尺度下用 CCoeff + SqDiff（SqDiff 有二次验证，不会误报）
                     int scaleCount = MatchWithTemplateAdaptive(screenGray, scaledTemplate, relaxed);
                     totalCount += scaleCount;
-
-                    if (totalCount >= MaxMatchCount) break;
-
-                    int rotCount = MatchWithTemplateRotations(screenGray, scaledTemplate, relaxed, angles);
-                    totalCount += rotCount;
                 }
             }
 
             return totalCount;
-        }
-
-        private int MatchWithTemplateRotations(Mat screenGray, Mat templateGray, double threshold, double[] angles)
-        {
-            int totalCount = 0;
-            for (int i = 0; i < angles.Length; i++)
-            {
-                if (totalCount >= MaxMatchCount) break;
-
-                using (Mat rotatedTemplate = new Mat())
-                using (Mat rotatedMask = new Mat())
-                {
-                    RotateTemplateWithMask(templateGray, angles[i], rotatedTemplate, rotatedMask);
-
-                    if (rotatedTemplate.Width < 8 || rotatedTemplate.Height < 8)
-                    {
-                        continue;
-                    }
-                    if (rotatedTemplate.Width > screenGray.Width || rotatedTemplate.Height > screenGray.Height)
-                    {
-                        continue;
-                    }
-
-                    int count = MatchWithTemplateMasked(screenGray, rotatedTemplate, rotatedMask, threshold);
-                    totalCount += count;
-                }
-            }
-
-            return totalCount;
-        }
-
-        private static void RotateTemplateWithMask(Mat src, double angle, Mat dst, Mat mask)
-        {
-            Point2f center = new Point2f(src.Width / 2f, src.Height / 2f);
-            using (Mat rot = Cv2.GetRotationMatrix2D(center, angle, 1.0))
-            {
-                double radians = angle * Math.PI / 180.0;
-                double absCos = Math.Abs(Math.Cos(radians));
-                double absSin = Math.Abs(Math.Sin(radians));
-                int boundW = Math.Max(1, (int)Math.Ceiling(src.Height * absSin + src.Width * absCos));
-                int boundH = Math.Max(1, (int)Math.Ceiling(src.Height * absCos + src.Width * absSin));
-
-                double tx = rot.At<double>(0, 2) + (boundW / 2.0 - center.X);
-                double ty = rot.At<double>(1, 2) + (boundH / 2.0 - center.Y);
-                rot.Set(0, 2, tx);
-                rot.Set(1, 2, ty);
-
-                // 旋转模板图像，填充区域用 0（黑色）
-                Cv2.WarpAffine(src, dst, rot, new OpenCvSharp.Size(boundW, boundH),
-                    InterpolationFlags.Linear, BorderTypes.Constant, new Scalar(0));
-
-                // 生成 mask：原始区域全白，旋转后填充区域为黑
-                using (Mat ones = Mat.Ones(src.Height, src.Width, MatType.CV_8UC1) * 255)
-                {
-                    Cv2.WarpAffine(ones, mask, rot, new OpenCvSharp.Size(boundW, boundH),
-                        InterpolationFlags.Linear, BorderTypes.Constant, new Scalar(0));
-                    // 二值化确保 mask 干净（插值可能产生中间值）
-                    Cv2.Threshold(mask, mask, 128, 255, ThresholdTypes.Binary);
-                }
-            }
-        }
-
-        /// <summary>
-        /// 带 mask 的模板匹配：只比较 mask 中有效（非零）的像素区域。
-        /// 用于旋转后的模板匹配，排除旋转产生的填充边界。
-        /// </summary>
-        private int MatchWithTemplateMasked(Mat screenGray, Mat templateGray, Mat mask, double threshold)
-        {
-            if (screenGray.Width < templateGray.Width || screenGray.Height < templateGray.Height)
-            {
-                return 0;
-            }
-
-            using (Mat result = new Mat())
-            {
-                // CCoeffNormed 支持 mask 参数
-                Cv2.MatchTemplate(screenGray, templateGray, result, TemplateMatchModes.CCoeffNormed, mask);
-                Cv2.MinMaxLoc(result, out _, out double peakVal, out _, out OpenCvSharp.Point peakLoc);
-                LogMatch("Template_Rotated_Masked_Peak", peakVal,
-                    new Rectangle(peakLoc.X, peakLoc.Y, templateGray.Width, templateGray.Height), false);
-
-                Cv2.Threshold(result, result, threshold, 1.0, ThresholdTypes.Tozero);
-
-                int count = 0;
-                while (count < MaxMatchCount)
-                {
-                    double minVal, maxVal;
-                    OpenCvSharp.Point minLoc, maxLoc;
-                    Cv2.MinMaxLoc(result, out minVal, out maxVal, out minLoc, out maxLoc);
-                    if (double.IsNaN(maxVal) || maxVal < threshold)
-                    {
-                        break;
-                    }
-
-                    Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
-                    if (!IsOverlapping(rect))
-                    {
-                        int markerNo = AddNumberedMarker(rect);
-                        if (markerNo > 0)
-                        {
-                            count++;
-                            LogMatch("Template_Rotated_Masked", maxVal, rect, true, markerNo);
-                        }
-                    }
-                    SuppressResultRegion(result, maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height, 0);
-                }
-
-                return count;
-            }
         }
 
         private static Mat TrimWhiteBorder(Mat templateGray)
