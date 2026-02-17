@@ -554,12 +554,24 @@ namespace ScreenCaptureTool
                 return 0;
             }
 
-            // 先用原始尺度（scale=1.0）精确匹配
+            // 先用原始尺度（scale=1.0）精确匹配（使用完整 Adaptive：CCoeff→SqDiff→Edges）
             int totalCount = MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
 
-            // 无论是否在 scale=1.0 找到匹配，继续搜索其他尺度以发现不同大小的相似图
-            double relaxed = Math.Max(0.5, threshold - 0.03);
-            double[] scales = new[] { 0.9, 1.1, 0.8, 1.2, 0.7, 1.3, 0.6, 1.4, 0.5, 1.5 };
+            // 多尺度搜索：只用 CCoeff（SqDiff 在不同尺度下误报率极高）
+            double relaxed = Math.Max(0.5, threshold - 0.05);
+            // 加细步长，覆盖 0.5~1.5 范围
+            double[] scales = new[] {
+                0.95, 1.05,
+                0.9, 1.1,
+                0.85, 1.15,
+                0.8, 1.2,
+                0.75, 1.25,
+                0.7, 1.3,
+                0.65, 1.35,
+                0.6, 1.4,
+                0.55, 1.45,
+                0.5, 1.5
+            };
             double[] angles = new[] { -30.0, -24.0, -18.0, -12.0, -6.0, 6.0, 12.0, 18.0, 24.0, 30.0 };
             for (int i = 0; i < scales.Length; i++)
             {
@@ -580,7 +592,8 @@ namespace ScreenCaptureTool
                 {
                     Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
 
-                    int scaleCount = MatchWithTemplateAdaptive(screenGray, scaledTemplate, relaxed);
+                    // 多尺度下只用 CCoeff，避免 SqDiff 的大量误报
+                    int scaleCount = MatchWithTemplateCCoeff(screenGray, scaledTemplate, relaxed);
                     totalCount += scaleCount;
 
                     if (totalCount >= MaxMatchCount) break;
@@ -755,11 +768,11 @@ namespace ScreenCaptureTool
                 totalCount += MatchWithTemplateCCoeff(screenGray, templateGray, threshold);
             }
 
-            // SqDiff 和 Edges 在同尺度下大概率找到与 CCoeff 相同的位置，
-            // 如果 CCoeff 已经有结果则跳过，避免无意义的重复计算
+            // SqDiff 误报率高，仅在 CCoeff 无结果时使用，且提高阈值
             if (totalCount == 0)
             {
-                totalCount += MatchWithTemplateSqDiff(screenGray, templateGray, threshold);
+                double sqDiffThreshold = Math.Max(threshold, 0.96);
+                totalCount += MatchWithTemplateSqDiff(screenGray, templateGray, sqDiffThreshold);
             }
 
             if (totalCount == 0)
@@ -785,14 +798,7 @@ namespace ScreenCaptureTool
                 }
 
                 double edgeThreshold = Math.Max(0.4, threshold - 0.12);
-                int totalCount = MatchWithTemplateCCoeff(screenEdges, templateEdges, edgeThreshold);
-
-                if (totalCount < MaxMatchCount)
-                {
-                    totalCount += MatchWithTemplateSqDiff(screenEdges, templateEdges, edgeThreshold);
-                }
-
-                return totalCount;
+                return MatchWithTemplateCCoeff(screenEdges, templateEdges, edgeThreshold);
             }
         }
 
