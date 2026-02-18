@@ -76,7 +76,7 @@ namespace ScreenCaptureTool
         private void SetupUI()
         {
             const int labelX = 20;
-            const int inputX = 255;
+            const int inputX = 220;
             const int inputW = 85;
             const int labelW = 225;
             const int rowH = 28;
@@ -89,7 +89,7 @@ namespace ScreenCaptureTool
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
 
-            int y = 1;
+            int y = 8;
 
             // === 快捷键组 ===
             lblHotkey = new Label { Text = "启动快捷键:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
