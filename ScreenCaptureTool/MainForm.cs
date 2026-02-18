@@ -22,12 +22,20 @@ namespace ScreenCaptureTool
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+        private Label lblHotkey;
+        private TextBox txtHotkey;
+        private Label lblCancelHotkey;
+        private TextBox txtCancelHotkey;
+        private Label lblStampHotkey;
+        private TextBox txtStampHotkey;
         private Label lblOpacity;
         private TextBox txtOpacity;
         private Label lblBorder;
         private TextBox txtBorder;
         private Label lblSimilarity;
         private TextBox txtSimilarity;
+        private Label lblMaxMatch;
+        private TextBox txtMaxMatch;
         private Label lblMarkerBorder;
         private TextBox txtMarkerBorder;
         private Label lblMarkerFont;
@@ -40,18 +48,12 @@ namespace ScreenCaptureTool
         private TextBox txtMagnifierZoom;
         private Label lblMagnifierFont;
         private TextBox txtMagnifierFont;
-        private Label lblStampHotkey;
-        private TextBox txtStampHotkey;
         private Label lblStampWidth;
         private TextBox txtStampWidth;
         private Label lblStampHeight;
         private TextBox txtStampHeight;
         private Label lblStampStep;
         private TextBox txtStampStep;
-        private Label lblHotkey;
-        private TextBox txtHotkey;
-        private Label lblCancelHotkey;
-        private TextBox txtCancelHotkey;
         private Button btnApply;
         private Button btnCapture;
         private Panel settingsPanel;
@@ -62,7 +64,7 @@ namespace ScreenCaptureTool
             settings = Settings.Load();
 
             this.Text = "抓屏软件设置";
-            this.Size = new Size(366, 580);
+            this.Size = new Size(380, 620);
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -73,7 +75,12 @@ namespace ScreenCaptureTool
 
         private void SetupUI()
         {
-            int y = 20;
+            const int labelX = 20;
+            const int inputX = 255;
+            const int inputW = 85;
+            const int labelW = 225;
+            const int rowH = 28;
+
             settingsPanel = new Panel
             {
                 AutoScroll = true,
@@ -81,99 +88,98 @@ namespace ScreenCaptureTool
                 Size = this.ClientSize,
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
-            
-            lblHotkey = new Label { Text = "启动快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(220, 20) };
-            y += 25;
+
+            int y = 15;
+
+            // === 快捷键组 ===
+            lblHotkey = new Label { Text = "启动快捷键:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
             txtHotkey = new TextBox {
-                Text = settings.Hotkey,
-                Location = new Point(250, y -26),
-                Size = new Size(80, 23),
-                ReadOnly = true,
-                BackColor = Color.White,
-                TextAlign = HorizontalAlignment.Center
+                Text = settings.Hotkey, Location = new Point(inputX, y), Size = new Size(inputW, 23),
+                ReadOnly = true, BackColor = Color.White, TextAlign = HorizontalAlignment.Center
             };
             txtHotkey.KeyDown += TxtHotkey_KeyDown;
-       
+            y += rowH;
 
-            lblCancelHotkey = new Label { Text = "取消快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(220, 20) };
-            y += 30;
+            lblCancelHotkey = new Label { Text = "取消快捷键:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
             txtCancelHotkey = new TextBox {
-                Text = settings.CancelHotkey,
-                Location = new Point(250, y -26),
-                Size = new Size(80, 23),
-                ReadOnly = true,
-                BackColor = Color.White,
-                TextAlign = HorizontalAlignment.Center
+                Text = settings.CancelHotkey, Location = new Point(inputX, y), Size = new Size(inputW, 23),
+                ReadOnly = true, BackColor = Color.White, TextAlign = HorizontalAlignment.Center
             };
             txtCancelHotkey.KeyDown += TxtCancelHotkey_KeyDown;
-      
+            y += rowH;
 
-            lblStampHotkey = new Label { Text = "印章模式快捷键 (点击下方框后按键):", Location = new Point(20, y), Size = new Size(220, 20) };
-            y += 30;
+            lblStampHotkey = new Label { Text = "印章模式快捷键:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
             txtStampHotkey = new TextBox {
-                Text = settings.StampHotkey,
-                Location = new Point(250, y -26),
-                Size = new Size(80, 23),
-                ReadOnly = true,
-                BackColor = Color.White,
-                TextAlign = HorizontalAlignment.Center
+                Text = settings.StampHotkey, Location = new Point(inputX, y), Size = new Size(inputW, 23),
+                ReadOnly = true, BackColor = Color.White, TextAlign = HorizontalAlignment.Center
             };
             txtStampHotkey.KeyDown += TxtStampHotkey_KeyDown;
-  
+            y += rowH + 6;
 
-            lblOpacity = new Label { Text = "初始透明度 (10-100)%:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtOpacity = new TextBox { Text = settings.DefaultOpacity.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 30;
+            // === 匹配参数组 ===
+            lblSimilarity = new Label { Text = "相似度 (50-99)%:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtSimilarity = new TextBox { Text = settings.SimilarityThresholdPercent.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH;
 
-            lblBorder = new Label { Text = "边框大小 (0-20)px:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtBorder = new TextBox { Text = settings.BorderSize.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 30;
+            lblMaxMatch = new Label { Text = "最大匹配数 (1-50):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtMaxMatch = new TextBox { Text = settings.MaxMatchResults.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH + 6;
 
-            lblSimilarity = new Label { Text = "相似度 (50-99)%:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtSimilarity = new TextBox { Text = settings.SimilarityThresholdPercent.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 30;
+            // === 显示参数组 ===
+            lblOpacity = new Label { Text = "初始透明度 (10-100)%:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtOpacity = new TextBox { Text = settings.DefaultOpacity.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH;
 
-            lblMarkerBorder = new Label { Text = "标记框粗细 (1-10)px:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMarkerBorder = new TextBox { Text = settings.MarkerBorderThickness.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 30;
+            lblBorder = new Label { Text = "边框大小 (0-20)px:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtBorder = new TextBox { Text = settings.BorderSize.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH + 6;
 
-            lblMarkerFont = new Label { Text = "标记文字大小 (10-48):", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMarkerFont = new TextBox { Text = settings.MarkerFontSize.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 30;
+            // === 标记参数组 ===
+            lblMarkerBorder = new Label { Text = "标记框粗细 (1-10)px:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtMarkerBorder = new TextBox { Text = settings.MarkerBorderThickness.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH;
 
-            lblMarkerAlpha = new Label { Text = "标记框透明度 (20-200):", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMarkerAlpha = new TextBox { Text = settings.MarkerFillAlpha.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 30;
+            lblMarkerFont = new Label { Text = "标记文字大小 (10-48):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtMarkerFont = new TextBox { Text = settings.MarkerFontSize.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH;
 
-            lblMagnifierSize = new Label { Text = "放大镜大小 (80-260)px:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMagnifierSize = new TextBox { Text = settings.MagnifierSize.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 30;
+            lblMarkerAlpha = new Label { Text = "标记框透明度 (20-200):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtMarkerAlpha = new TextBox { Text = settings.MarkerFillAlpha.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH + 6;
 
-            lblMagnifierZoom = new Label { Text = "放大倍数 (2-15)x:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMagnifierZoom = new TextBox { Text = settings.MagnifierZoom.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 30;
+            // === 放大镜参数组 ===
+            lblMagnifierSize = new Label { Text = "放大镜大小 (80-260)px:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtMagnifierSize = new TextBox { Text = settings.MagnifierSize.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH;
 
-            lblMagnifierFont = new Label { Text = "放大镜文字大小 (6-20):", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtMagnifierFont = new TextBox { Text = settings.MagnifierFontSize.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 35;
+            lblMagnifierZoom = new Label { Text = "放大倍数 (2-15)x:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtMagnifierZoom = new TextBox { Text = settings.MagnifierZoom.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH;
 
-            lblStampWidth = new Label { Text = "印章框宽度 (20-800)px:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtStampWidth = new TextBox { Text = settings.StampBoxWidth.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 30;
+            lblMagnifierFont = new Label { Text = "放大镜文字大小 (6-20):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtMagnifierFont = new TextBox { Text = settings.MagnifierFontSize.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH + 6;
 
-            lblStampHeight = new Label { Text = "印章框高度 (20-800)px:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtStampHeight = new TextBox { Text = settings.StampBoxHeight.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 30;
+            // === 印章参数组 ===
+            lblStampWidth = new Label { Text = "印章框宽度 (20-800)px:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtStampWidth = new TextBox { Text = settings.StampBoxWidth.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH;
 
-            lblStampStep = new Label { Text = "滚轮缩放步进 (5-30)%:", Location = new Point(20, y), Size = new Size(220, 20) };
-            txtStampStep = new TextBox { Text = settings.StampWheelScaleStepPercent.ToString(), Location = new Point(250, y - 2), Size = new Size(80, 25) };
-            y += 40;
+            lblStampHeight = new Label { Text = "印章框高度 (20-800)px:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtStampHeight = new TextBox { Text = settings.StampBoxHeight.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH;
 
-            btnApply = new Button { Text = "保存并隐藏", Location = new Point(20, y), Size = new Size(120, 40), BackColor = Color.LightGray };
+            lblStampStep = new Label { Text = "滚轮缩放步进 (5-30)%:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtStampStep = new TextBox { Text = settings.StampWheelScaleStepPercent.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH + 12;
+
+            // === 按钮 ===
+            btnApply = new Button { Text = "保存并隐藏", Location = new Point(labelX, y), Size = new Size(130, 38), BackColor = Color.LightGray };
             btnApply.Click += (s, e) => {
+                if (!TryReadInt("相似度", txtSimilarity, 50, 99, out int similarity)) return;
+                if (!TryReadInt("最大匹配数", txtMaxMatch, 1, 50, out int maxMatch)) return;
                 if (!TryReadInt("初始透明度", txtOpacity, 10, 100, out int opacity)) return;
                 if (!TryReadInt("边框大小", txtBorder, 0, 20, out int border)) return;
-                if (!TryReadInt("相似度", txtSimilarity, 50, 99, out int similarity)) return;
                 if (!TryReadInt("标记框粗细", txtMarkerBorder, 1, 10, out int markerBorder)) return;
                 if (!TryReadInt("标记文字大小", txtMarkerFont, 10, 48, out int markerFont)) return;
                 if (!TryReadInt("标记框透明度", txtMarkerAlpha, 20, 200, out int markerAlpha)) return;
@@ -184,9 +190,10 @@ namespace ScreenCaptureTool
                 if (!TryReadInt("印章框高度", txtStampHeight, 20, 800, out int stampHeight)) return;
                 if (!TryReadInt("滚轮缩放步进", txtStampStep, 5, 30, out int stampStep)) return;
 
+                settings.SimilarityThresholdPercent = similarity;
+                settings.MaxMatchResults = maxMatch;
                 settings.DefaultOpacity = opacity;
                 settings.BorderSize = border;
-                settings.SimilarityThresholdPercent = similarity;
                 settings.MarkerBorderThickness = markerBorder;
                 settings.MarkerFontSize = markerFont;
                 settings.MarkerFillAlpha = markerAlpha;
@@ -202,7 +209,7 @@ namespace ScreenCaptureTool
                 trayIcon.ShowBalloonTip(2000, "设置已保存", $"程序已隐藏，按 {settings.Hotkey} 开始截图", ToolTipIcon.Info);
             };
 
-            btnCapture = new Button { Text = "立即截图", Location = new Point(180, y), Size = new Size(120, 40), BackColor = Color.LightBlue };
+            btnCapture = new Button { Text = "立即截图", Location = new Point(inputX - 20, y), Size = new Size(130, 38), BackColor = Color.LightBlue };
             btnCapture.Click += (s, e) => StartCapture(false);
 
             settingsPanel.Controls.Add(lblHotkey);
@@ -211,12 +218,14 @@ namespace ScreenCaptureTool
             settingsPanel.Controls.Add(txtCancelHotkey);
             settingsPanel.Controls.Add(lblStampHotkey);
             settingsPanel.Controls.Add(txtStampHotkey);
+            settingsPanel.Controls.Add(lblSimilarity);
+            settingsPanel.Controls.Add(txtSimilarity);
+            settingsPanel.Controls.Add(lblMaxMatch);
+            settingsPanel.Controls.Add(txtMaxMatch);
             settingsPanel.Controls.Add(lblOpacity);
             settingsPanel.Controls.Add(txtOpacity);
             settingsPanel.Controls.Add(lblBorder);
             settingsPanel.Controls.Add(txtBorder);
-            settingsPanel.Controls.Add(lblSimilarity);
-            settingsPanel.Controls.Add(txtSimilarity);
             settingsPanel.Controls.Add(lblMarkerBorder);
             settingsPanel.Controls.Add(txtMarkerBorder);
             settingsPanel.Controls.Add(lblMarkerFont);
@@ -415,7 +424,7 @@ namespace ScreenCaptureTool
         private void InitializeComponent()
         {
             this.SuspendLayout();
-            this.ClientSize = new System.Drawing.Size(334, 411);
+            this.ClientSize = new System.Drawing.Size(348, 580);
             this.Name = "MainForm";
             this.StartPosition = FormStartPosition.CenterScreen;
             this.ResumeLayout(false);

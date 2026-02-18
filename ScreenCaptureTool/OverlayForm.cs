@@ -30,10 +30,10 @@ namespace ScreenCaptureTool
         private Mat templateColorHist;
         private int templateForegroundPixels = 0;
         private bool hasTemplateColorModel = false;
+        private Rectangle captureRegion;
         private const int MinImageScale = 20;
         private const int MaxImageScale = 500;
         private const int MaxMatchCount = 50;
-        private const int FastExitMatchCount = 3;
         private const int OrbMinTemplateArea = 12000;
         private const double ColorSimilarityThreshold = 0.5;
         private const int MinColorForegroundPixels = 25;
@@ -80,6 +80,7 @@ namespace ScreenCaptureTool
         {
             this.image = img;
             this.settings = settings;
+            this.captureRegion = region;
             currentMatchColor = MarkerColorProvider.NextSharedColor();
             this.AutoScaleMode = AutoScaleMode.None;
             this.AutoSize = false;
@@ -349,7 +350,7 @@ namespace ScreenCaptureTool
                         count += TryMatchWithOrb(screenBmp);
 
                     // 2) 灰度模板匹配（多尺度）— 主路径
-                    if (count < FastExitMatchCount)
+                    if (count < settings.MaxMatchResults)
                         count += MatchWithTemplate(screenBmp, threshold);
 
                     // 3) HSV 色彩直方图滑窗 — 仅在模板匹配完全失败时作为兜底
@@ -550,7 +551,7 @@ namespace ScreenCaptureTool
                 }
             }
 
-            if (ReachedTargetMatchCount() || totalCount >= FastExitMatchCount)
+            if (ReachedTargetMatchCount() || totalCount >= settings.MaxMatchResults)
             {
                 return totalCount;
             }
@@ -573,7 +574,7 @@ namespace ScreenCaptureTool
             // 先用原始尺度（scale=1.0）精确匹配（使用 Adaptive：CCoeff→Edges）
             int totalCount = MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
 
-            if (ReachedTargetMatchCount() || totalCount >= FastExitMatchCount)
+            if (ReachedTargetMatchCount() || totalCount >= settings.MaxMatchResults)
             {
                 return totalCount;
             }
@@ -590,7 +591,7 @@ namespace ScreenCaptureTool
             };
             for (int i = 0; i < scales.Length; i++)
             {
-                if (totalCount >= MaxMatchCount || ReachedTargetMatchCount() || totalCount >= FastExitMatchCount) break;
+                if (totalCount >= MaxMatchCount || ReachedTargetMatchCount() || totalCount >= settings.MaxMatchResults) break;
 
                 int targetW = (int)Math.Round(templateGray.Width * scales[i]);
                 int targetH = (int)Math.Round(templateGray.Height * scales[i]);
@@ -733,7 +734,7 @@ namespace ScreenCaptureTool
                     {
                         Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
                         bool colorOk = PassesColorValidation(rect);
-                        if (colorOk && !IsOverlapping(rect))
+                        if (colorOk && !IsCaptureRegion(rect) && !IsOverlapping(rect))
                         {
                             int markerNo = AddNumberedMarker(rect);
                             if (markerNo > 0)
@@ -895,7 +896,7 @@ namespace ScreenCaptureTool
 
         private bool ReachedTargetMatchCount()
         {
-            return markerCount >= FastExitMatchCount;
+            return markerCount >= settings.MaxMatchResults;
         }
 
         private int AddNumberedMarker(Rectangle rect)
@@ -939,6 +940,27 @@ namespace ScreenCaptureTool
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// 检查候选区域是否位于抓图位置（即模板自身所在位置），如果是则跳过。
+        /// </summary>
+        private bool IsCaptureRegion(Rectangle rect)
+        {
+            if (captureRegion.IsEmpty || captureRegion.Width <= 0 || captureRegion.Height <= 0)
+            {
+                return false;
+            }
+
+            Rectangle inter = Rectangle.Intersect(captureRegion, rect);
+            if (inter.Width <= 0 || inter.Height <= 0)
+            {
+                return false;
+            }
+
+            double interArea = inter.Width * inter.Height;
+            double rectArea = rect.Width * rect.Height;
+            return rectArea > 0 && (interArea / rectArea) >= 0.5;
         }
 
         private static double Distance(Point2f a, Point2f b)

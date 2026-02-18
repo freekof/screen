@@ -19,6 +19,7 @@ namespace ScreenCaptureTool
         public int StampBoxWidth { get; set; } = 140;
         public int StampBoxHeight { get; set; } = 100;
         public int StampWheelScaleStepPercent { get; set; } = 10;
+        public int MaxMatchResults { get; set; } = 2;
         public string Hotkey { get; set; } = "F1";
         public uint HotkeyModifiers { get; set; } = 0; // 0: None, 1: Alt, 2: Control, 4: Shift, 8: Win
         public uint HotkeyCode { get; set; } = 0x70; // Default F1 (0x70)
