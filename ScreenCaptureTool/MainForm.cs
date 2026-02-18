@@ -89,7 +89,7 @@ namespace ScreenCaptureTool
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
 
-            int y = 15;
+            int y = 1;
 
             // === 快捷键组 ===
             lblHotkey = new Label { Text = "启动快捷键:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
@@ -209,7 +209,7 @@ namespace ScreenCaptureTool
                 trayIcon.ShowBalloonTip(2000, "设置已保存", $"程序已隐藏，按 {settings.Hotkey} 开始截图", ToolTipIcon.Info);
             };
 
-            btnCapture = new Button { Text = "立即截图", Location = new Point(inputX - 20, y - 20), Size = new Size(130, 38), BackColor = Color.LightBlue };
+            btnCapture = new Button { Text = "立即截图", Location = new Point(inputX - 20, y), Size = new Size(130, 38), BackColor = Color.LightBlue };
             btnCapture.Click += (s, e) => StartCapture(false);
 
             settingsPanel.Controls.Add(lblHotkey);
