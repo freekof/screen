@@ -209,7 +209,7 @@ namespace ScreenCaptureTool
                 trayIcon.ShowBalloonTip(2000, "设置已保存", $"程序已隐藏，按 {settings.Hotkey} 开始截图", ToolTipIcon.Info);
             };
 
-            btnCapture = new Button { Text = "立即截图", Location = new Point(inputX - 20, y), Size = new Size(130, 38), BackColor = Color.LightBlue };
+            btnCapture = new Button { Text = "立即截图", Location = new Point(inputX - 20, y - 20), Size = new Size(130, 38), BackColor = Color.LightBlue };
             btnCapture.Click += (s, e) => StartCapture(false);
 
             settingsPanel.Controls.Add(lblHotkey);
