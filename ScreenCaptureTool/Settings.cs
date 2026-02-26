@@ -9,6 +9,7 @@ namespace ScreenCaptureTool
         public int DefaultOpacity { get; set; } = 80;
         public int BorderSize { get; set; } = 2;
         public int SimilarityThresholdPercent { get; set; } = 90;
+        public double ColorSimilarityThreshold { get; set; } = 0.5;
         public int MarkerBorderThickness { get; set; } = 2;
         public int MarkerFontSize { get; set; } = 24;
         public int MarkerFillAlpha { get; set; } = 80;

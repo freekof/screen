@@ -4,6 +4,7 @@ using System.Windows.Forms;
 using System.Runtime.InteropServices;
 using System.IO;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace ScreenCaptureTool
 {
@@ -34,6 +35,8 @@ namespace ScreenCaptureTool
         private TextBox txtBorder;
         private Label lblSimilarity;
         private TextBox txtSimilarity;
+        private Label lblColorSimilarity;
+        private TextBox txtColorSimilarity;
         private Label lblMaxMatch;
         private TextBox txtMaxMatch;
         private Label lblMarkerBorder;
@@ -121,6 +124,10 @@ namespace ScreenCaptureTool
             txtSimilarity = new TextBox { Text = settings.SimilarityThresholdPercent.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
             y += rowH;
 
+            lblColorSimilarity = new Label { Text = "颜色相似度(HSV, 0.10-1.00):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtColorSimilarity = new TextBox { Text = settings.ColorSimilarityThreshold.ToString("0.00", CultureInfo.InvariantCulture), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH;
+
             lblMaxMatch = new Label { Text = "最大匹配数 (1-50):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
             txtMaxMatch = new TextBox { Text = settings.MaxMatchResults.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
             y += rowH + 6;
@@ -177,6 +184,7 @@ namespace ScreenCaptureTool
             btnApply = new Button { Text = "保存并隐藏", Location = new Point(labelX, y), Size = new Size(130, 38), BackColor = Color.LightGray };
             btnApply.Click += (s, e) => {
                 if (!TryReadInt("相似度", txtSimilarity, 50, 99, out int similarity)) return;
+                if (!TryReadDouble("颜色相似度", txtColorSimilarity, 0.10, 1.00, out double colorSimilarity)) return;
                 if (!TryReadInt("最大匹配数", txtMaxMatch, 1, 50, out int maxMatch)) return;
                 if (!TryReadInt("初始透明度", txtOpacity, 10, 100, out int opacity)) return;
                 if (!TryReadInt("边框大小", txtBorder, 0, 20, out int border)) return;
@@ -191,6 +199,7 @@ namespace ScreenCaptureTool
                 if (!TryReadInt("滚轮缩放步进", txtStampStep, 5, 30, out int stampStep)) return;
 
                 settings.SimilarityThresholdPercent = similarity;
+                settings.ColorSimilarityThreshold = colorSimilarity;
                 settings.MaxMatchResults = maxMatch;
                 settings.DefaultOpacity = opacity;
                 settings.BorderSize = border;
@@ -220,6 +229,8 @@ namespace ScreenCaptureTool
             settingsPanel.Controls.Add(txtStampHotkey);
             settingsPanel.Controls.Add(lblSimilarity);
             settingsPanel.Controls.Add(txtSimilarity);
+            settingsPanel.Controls.Add(lblColorSimilarity);
+            settingsPanel.Controls.Add(txtColorSimilarity);
             settingsPanel.Controls.Add(lblMaxMatch);
             settingsPanel.Controls.Add(txtMaxMatch);
             settingsPanel.Controls.Add(lblOpacity);
@@ -263,6 +274,28 @@ namespace ScreenCaptureTool
                 textBox.Focus();
                 return false;
             }
+            return true;
+        }
+
+        private bool TryReadDouble(string label, TextBox textBox, double min, double max, out double value)
+        {
+            string text = textBox.Text.Trim();
+            bool parsed = double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value)
+                          || double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+            if (!parsed)
+            {
+                MessageBox.Show($"{label} 请输入数字（例如 0.50）。");
+                textBox.Focus();
+                return false;
+            }
+
+            if (value < min || value > max)
+            {
+                MessageBox.Show($"{label} 取值范围 {min:0.00}-{max:0.00}。");
+                textBox.Focus();
+                return false;
+            }
+
             return true;
         }
 

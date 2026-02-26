@@ -34,8 +34,6 @@ namespace ScreenCaptureTool
         private const int MinImageScale = 20;
         private const int MaxImageScale = 500;
         private const int MaxMatchCount = 50;
-        private const int OrbMinTemplateArea = 12000;
-        private const double ColorSimilarityThreshold = 0.5;
         private const int MinColorForegroundPixels = 25;
         private const double LowVarianceStdDev = 5.0;
         private int imageScale = 100;
@@ -304,14 +302,7 @@ namespace ScreenCaptureTool
             base.WndProc(ref m);
         }
 
-        private static readonly string MatchLogPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "match_algorithm.log");
-
         private static void LogMatch(string algorithm, double score, Rectangle rect, bool accepted, int markerNumber = 0)
-        {
-            // Logging disabled
-        }
-
-        private static void LogMatchHeader(string templateInfo)
         {
             // Logging disabled
         }
@@ -341,29 +332,8 @@ namespace ScreenCaptureTool
 
                     double threshold = settings.SimilarityThresholdPercent / 100.0;
 
-                    // 依次尝试所有算法，累积匹配结果
-                    int count = 0;
-
-                    // 1) ORB 特征匹配（小模板上命中率低且耗时高，直接跳过）
-                    int templateArea = image.Width * image.Height;
-                    if (templateArea >= OrbMinTemplateArea)
-                        count += TryMatchWithOrb(screenBmp);
-
-                    // 2) 灰度模板匹配（多尺度）— 主路径
-                    if (count < settings.MaxMatchResults)
-                        count += MatchWithTemplate(screenBmp, threshold);
-
-                    // 3) HSV 色彩直方图滑窗 — 仅在模板匹配完全失败时作为兜底
-                    if (count == 0)
-                        count += TryMatchWithHistogram(screenBmp, threshold);
-
-                    // 4) pHash 多尺度滑窗
-                    if (count == 0)
-                        count += TryMatchWithPHash(screenBmp, threshold);
-
-                    // 5) Hu 矩形状匹配（轮廓）
-                    if (count == 0)
-                        count += TryMatchWithHuMoments(screenBmp, threshold);
+                    // 仅使用模板匹配主路径（CCoeff + 自适应边缘 + 多尺度）
+                    int count = MatchWithTemplate(screenBmp, threshold);
 
                     if (count == 0)
                     {
@@ -386,134 +356,6 @@ namespace ScreenCaptureTool
                 {
                     this.Show();
                     this.Activate();
-                }
-            }
-        }
-
-        private int TryMatchWithOrb(Bitmap screenBmp)
-        {
-            using (Mat screenMat = screenBmp.ToMat())
-            using (Mat templateMat = image.ToMat())
-            using (Mat screenGray = new Mat())
-            using (Mat templateGray = new Mat())
-            {
-                ConvertToGray(screenMat, screenGray);
-                ConvertToGray(templateMat, templateGray);
-
-                using (var orb = ORB.Create(1000))
-                {
-                    KeyPoint[] kpTemplate, kpScreen;
-                    using (Mat descTemplate = new Mat())
-                    using (Mat descScreen = new Mat())
-                    {
-                        orb.DetectAndCompute(templateGray, null, out kpTemplate, descTemplate);
-                        orb.DetectAndCompute(screenGray, null, out kpScreen, descScreen);
-
-                        if (descTemplate.Empty() || descScreen.Empty())
-                        {
-                            return 0;
-                        }
-
-                        using (var matcher = new BFMatcher(NormTypes.Hamming, false))
-                        {
-                            DMatch[][] knnMatches = matcher.KnnMatch(descTemplate, descScreen, 2);
-                            List<DMatch> good = new List<DMatch>();
-                            for (int i = 0; i < knnMatches.Length; i++)
-                            {
-                                if (knnMatches[i].Length < 2) continue;
-                                if (knnMatches[i][0].Distance < 0.75f * knnMatches[i][1].Distance)
-                                {
-                                    good.Add(knnMatches[i][0]);
-                                }
-                            }
-
-                            LogMatch("ORB_GoodMatches", good.Count, Rectangle.Empty, false);
-
-                            if (good.Count < 8)
-                            {
-                                return 0;
-                            }
-
-                            Point2f[] srcPts = new Point2f[good.Count];
-                            Point2f[] dstPts = new Point2f[good.Count];
-                            for (int i = 0; i < good.Count; i++)
-                            {
-                                srcPts[i] = kpTemplate[good[i].QueryIdx].Pt;
-                                dstPts[i] = kpScreen[good[i].TrainIdx].Pt;
-                            }
-
-                            using (Mat homography = Cv2.FindHomography(InputArray.Create(srcPts), InputArray.Create(dstPts), HomographyMethods.Ransac, 3.0))
-                            {
-                                if (homography.Empty())
-                                {
-                                    return 0;
-                                }
-
-                                Point2f[] corners = new Point2f[]
-                                {
-                                    new Point2f(0, 0),
-                                    new Point2f(templateMat.Width, 0),
-                                    new Point2f(templateMat.Width, templateMat.Height),
-                                    new Point2f(0, templateMat.Height)
-                                };
-                                Point2f[] projected = Cv2.PerspectiveTransform(corners, homography);
-
-                                double minX = projected[0].X;
-                                double maxX = projected[0].X;
-                                double minY = projected[0].Y;
-                                double maxY = projected[0].Y;
-                                for (int i = 1; i < projected.Length; i++)
-                                {
-                                    if (projected[i].X < minX) minX = projected[i].X;
-                                    if (projected[i].X > maxX) maxX = projected[i].X;
-                                    if (projected[i].Y < minY) minY = projected[i].Y;
-                                    if (projected[i].Y > maxY) maxY = projected[i].Y;
-                                }
-
-                                double width = Distance(projected[0], projected[1]);
-                                double height = Distance(projected[0], projected[3]);
-                                double scaleX = width / Math.Max(1, templateMat.Width);
-                                double scaleY = height / Math.Max(1, templateMat.Height);
-                                double scale = (scaleX + scaleY) * 0.5;
-
-                                if (scale < 0.2 || scale > 5.0)
-                                {
-                                    // 缩放异常时，仅标记一次
-                                    Rectangle rect = new Rectangle((int)minX, (int)minY, (int)Math.Max(1, maxX - minX), (int)Math.Max(1, maxY - minY));
-                                    int markerNo = AddNumberedMarker(rect);
-                                    if (markerNo > 0)
-                                    {
-                                        LogMatch("ORB_Homography", scale, rect, true, markerNo);
-                                        return 1;
-                                    }
-                                    return 0;
-                                }
-
-                                int targetW = Math.Max(8, (int)Math.Round(templateGray.Width * scale));
-                                int targetH = Math.Max(8, (int)Math.Round(templateGray.Height * scale));
-                                using (Mat scaledTemplate = new Mat())
-                                {
-                                    Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
-                                    double threshold = settings.SimilarityThresholdPercent / 100.0;
-                                    double relaxed = Math.Max(0.5, threshold - 0.02);
-                                    int count = MatchWithTemplate(screenGray, scaledTemplate, relaxed);
-                                    if (count > 0)
-                                    {
-                                        return count;
-                                    }
-                                }
-
-                                Rectangle singleRect = new Rectangle((int)minX, (int)minY, (int)Math.Max(1, maxX - minX), (int)Math.Max(1, maxY - minY));
-                                int singleMarkerNo = AddNumberedMarker(singleRect);
-                                if (singleMarkerNo > 0)
-                                {
-                                    LogMatch("ORB_Homography", scale, singleRect, true, singleMarkerNo);
-                                    return 1;
-                                }
-                                return 0;
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -881,7 +723,8 @@ namespace ScreenCaptureTool
                     return false;
                 }
 
-                return similarity >= ColorSimilarityThreshold;
+                double colorThreshold = Math.Max(0.0, Math.Min(1.0, settings.ColorSimilarityThreshold));
+                return similarity >= colorThreshold;
             }
         }
 
@@ -963,13 +806,6 @@ namespace ScreenCaptureTool
             return rectArea > 0 && (interArea / rectArea) >= 0.5;
         }
 
-        private static double Distance(Point2f a, Point2f b)
-        {
-            double dx = a.X - b.X;
-            double dy = a.Y - b.Y;
-            return Math.Sqrt(dx * dx + dy * dy);
-        }
-
         private static void ConvertToGray(Mat src, Mat dst)
         {
             if (src.Channels() == 4)
@@ -994,306 +830,6 @@ namespace ScreenCaptureTool
                 // Ignore logging failures to avoid masking original error.
             }
             return logPath;
-        }
-
-        // ============ 算法3: HSV 色彩直方图滑窗匹配 ============
-        private int TryMatchWithHistogram(Bitmap screenBmp, double threshold)
-        {
-            using (Mat screenMat = screenBmp.ToMat())
-            using (Mat templateMat = image.ToMat())
-            using (Mat screenHsv = new Mat())
-            using (Mat templateHsv = new Mat())
-            {
-                Mat screenBgr = screenMat.Channels() == 4 ? screenMat.CvtColor(ColorConversionCodes.BGRA2BGR) : screenMat;
-                Mat templateBgr = templateMat.Channels() == 4 ? templateMat.CvtColor(ColorConversionCodes.BGRA2BGR) : templateMat;
-                Cv2.CvtColor(screenBgr, screenHsv, ColorConversionCodes.BGR2HSV);
-                Cv2.CvtColor(templateBgr, templateHsv, ColorConversionCodes.BGR2HSV);
-                if (screenBgr != screenMat) screenBgr.Dispose();
-                if (templateBgr != templateMat) templateBgr.Dispose();
-
-                int[] histSize = { 30, 32 };
-                Rangef[] ranges = { new Rangef(0, 180), new Rangef(0, 256) };
-                int[] channels = { 0, 1 };
-
-                using (Mat templateHist = new Mat())
-                {
-                    Cv2.CalcHist(new[] { templateHsv }, channels, null, templateHist, 2, histSize, ranges);
-                    Cv2.Normalize(templateHist, templateHist, 0, 1, NormTypes.MinMax);
-
-                    double bestScore = 0;
-                    Rectangle bestRect = Rectangle.Empty;
-
-                    double[] scales = { 1.0, 0.9, 1.1, 0.8, 1.2, 0.7, 1.3, 0.6, 1.4, 0.5, 1.5 };
-                    for (int si = 0; si < scales.Length; si++)
-                    {
-                        int winW = Math.Max(8, (int)Math.Round(templateMat.Width * scales[si]));
-                        int winH = Math.Max(8, (int)Math.Round(templateMat.Height * scales[si]));
-                        if (winW > screenHsv.Width || winH > screenHsv.Height) continue;
-
-                        int stepX = Math.Max(1, winW / 4);
-                        int stepY = Math.Max(1, winH / 4);
-
-                        for (int y = 0; y <= screenHsv.Height - winH; y += stepY)
-                        {
-                            for (int x = 0; x <= screenHsv.Width - winW; x += stepX)
-                            {
-                                using (Mat roi = new Mat(screenHsv, new OpenCvSharp.Rect(x, y, winW, winH)))
-                                using (Mat roiHist = new Mat())
-                                {
-                                    Cv2.CalcHist(new[] { roi }, channels, null, roiHist, 2, histSize, ranges);
-                                    Cv2.Normalize(roiHist, roiHist, 0, 1, NormTypes.MinMax);
-                                    double score = Cv2.CompareHist(templateHist, roiHist, HistCompMethods.Correl);
-                                    LogMatch("Histogram_s" + scales[si].ToString("F2"), score, new Rectangle(x, y, winW, winH), false);
-
-                                    if (score > bestScore)
-                                    {
-                                        bestScore = score;
-                                        bestRect = new Rectangle(x, y, winW, winH);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    double histThreshold = Math.Max(0.3, threshold - 0.2);
-                    if (bestScore >= histThreshold && !bestRect.IsEmpty)
-                    {
-                        int markerNo = AddNumberedMarker(bestRect);
-                        if (markerNo > 0)
-                        {
-                            LogMatch("Histogram_BEST", bestScore, bestRect, true, markerNo);
-                            return 1;
-                        }
-                    }
-
-                    if (!bestRect.IsEmpty)
-                        LogMatch("Histogram_BEST", bestScore, bestRect, false);
-                }
-            }
-
-            return 0;
-        }
-
-        // ============ 算法4: pHash 多尺度滑窗匹配 ============
-        private int TryMatchWithPHash(Bitmap screenBmp, double threshold)
-        {
-            using (Mat screenMat = screenBmp.ToMat())
-            using (Mat templateMat = image.ToMat())
-            using (Mat screenGray = new Mat())
-            using (Mat templateGray = new Mat())
-            {
-                ConvertToGray(screenMat, screenGray);
-                ConvertToGray(templateMat, templateGray);
-
-                ulong templateHash = ComputePHash(templateGray);
-                double bestScore = 0;
-                Rectangle bestRect = Rectangle.Empty;
-
-                double[] scales = { 1.0, 0.9, 1.1, 0.8, 1.2, 0.7, 1.3, 0.6, 1.4, 0.5, 1.5 };
-                for (int si = 0; si < scales.Length; si++)
-                {
-                    int winW = Math.Max(8, (int)Math.Round(templateMat.Width * scales[si]));
-                    int winH = Math.Max(8, (int)Math.Round(templateMat.Height * scales[si]));
-                    if (winW > screenGray.Width || winH > screenGray.Height) continue;
-
-                    int stepX = Math.Max(1, winW / 3);
-                    int stepY = Math.Max(1, winH / 3);
-
-                    for (int y = 0; y <= screenGray.Height - winH; y += stepY)
-                    {
-                        for (int x = 0; x <= screenGray.Width - winW; x += stepX)
-                        {
-                            using (Mat roi = new Mat(screenGray, new OpenCvSharp.Rect(x, y, winW, winH)))
-                            {
-                                ulong roiHash = ComputePHash(roi);
-                                int hammingDist = HammingDistance(templateHash, roiHash);
-                                double score = 1.0 - (hammingDist / 64.0);
-
-                                if (score > bestScore)
-                                {
-                                    bestScore = score;
-                                    bestRect = new Rectangle(x, y, winW, winH);
-                                    LogMatch("pHash_s" + scales[si].ToString("F2"), score, bestRect, false);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                double pHashThreshold = Math.Max(0.6, threshold - 0.1);
-                if (bestScore >= pHashThreshold && !bestRect.IsEmpty)
-                {
-                    int markerNo = AddNumberedMarker(bestRect);
-                    if (markerNo > 0)
-                    {
-                        LogMatch("pHash_BEST", bestScore, bestRect, true, markerNo);
-                        return 1;
-                    }
-                }
-
-                if (!bestRect.IsEmpty)
-                    LogMatch("pHash_BEST", bestScore, bestRect, false);
-            }
-
-            return 0;
-        }
-
-        private static ulong ComputePHash(Mat gray)
-        {
-            using (Mat resized = new Mat())
-            using (Mat floatMat = new Mat())
-            using (Mat dctMat = new Mat())
-            {
-                Cv2.Resize(gray, resized, new OpenCvSharp.Size(32, 32), 0, 0, InterpolationFlags.Area);
-                resized.ConvertTo(floatMat, MatType.CV_64FC1);
-                Cv2.Dct(floatMat, dctMat);
-
-                // 取左上 8x8
-                double sum = 0;
-                double[] vals = new double[64];
-                for (int r = 0; r < 8; r++)
-                {
-                    for (int c = 0; c < 8; c++)
-                    {
-                        double v = dctMat.At<double>(r, c);
-                        vals[r * 8 + c] = v;
-                        sum += v;
-                    }
-                }
-
-                // 去掉 DC 分量
-                double avg = (sum - vals[0]) / 63.0;
-                ulong hash = 0;
-                for (int i = 0; i < 64; i++)
-                {
-                    if (i == 0) continue;
-                    if (vals[i] > avg)
-                        hash |= (1UL << i);
-                }
-
-                return hash;
-            }
-        }
-
-        private static int HammingDistance(ulong a, ulong b)
-        {
-            ulong xor = a ^ b;
-            int dist = 0;
-            while (xor != 0)
-            {
-                dist++;
-                xor &= (xor - 1);
-            }
-            return dist;
-        }
-
-        // ============ 算法5: Hu 矩形状匹配 ============
-        private int TryMatchWithHuMoments(Bitmap screenBmp, double threshold)
-        {
-            using (Mat screenMat = screenBmp.ToMat())
-            using (Mat templateMat = image.ToMat())
-            using (Mat screenGray = new Mat())
-            using (Mat templateGray = new Mat())
-            using (Mat screenBin = new Mat())
-            using (Mat templateBin = new Mat())
-            {
-                ConvertToGray(screenMat, screenGray);
-                ConvertToGray(templateMat, templateGray);
-
-                Cv2.Threshold(templateGray, templateBin, 0, 255, ThresholdTypes.Binary | ThresholdTypes.Otsu);
-                OpenCvSharp.Point[][] templateContours;
-                HierarchyIndex[] templateHierarchy;
-                Cv2.FindContours(templateBin, out templateContours, out templateHierarchy, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
-
-                if (templateContours.Length == 0)
-                {
-                    LogMatch("HuMoments", 0, Rectangle.Empty, false);
-                    return 0;
-                }
-
-                // 取最大轮廓
-                int maxIdx = 0;
-                double maxArea = 0;
-                for (int i = 0; i < templateContours.Length; i++)
-                {
-                    double area = Cv2.ContourArea(templateContours[i]);
-                    if (area > maxArea)
-                    {
-                        maxArea = area;
-                        maxIdx = i;
-                    }
-                }
-
-                Moments templateMoments = Cv2.Moments(templateContours[maxIdx]);
-                double[] templateHu = templateMoments.HuMoments();
-
-                double bestScore = double.MaxValue;
-                Rectangle bestRect = Rectangle.Empty;
-
-                double[] scales = { 1.0, 0.8, 1.2, 0.6, 1.4, 0.5, 1.5 };
-                for (int si = 0; si < scales.Length; si++)
-                {
-                    int winW = Math.Max(8, (int)Math.Round(templateMat.Width * scales[si]));
-                    int winH = Math.Max(8, (int)Math.Round(templateMat.Height * scales[si]));
-                    if (winW > screenGray.Width || winH > screenGray.Height) continue;
-
-                    int stepX = Math.Max(1, winW / 3);
-                    int stepY = Math.Max(1, winH / 3);
-
-                    for (int y = 0; y <= screenGray.Height - winH; y += stepY)
-                    {
-                        for (int x = 0; x <= screenGray.Width - winW; x += stepX)
-                        {
-                            using (Mat roi = new Mat(screenGray, new OpenCvSharp.Rect(x, y, winW, winH)))
-                            using (Mat roiBin = new Mat())
-                            {
-                                Cv2.Threshold(roi, roiBin, 0, 255, ThresholdTypes.Binary | ThresholdTypes.Otsu);
-                                OpenCvSharp.Point[][] roiContours;
-                                HierarchyIndex[] roiHierarchy;
-                                Cv2.FindContours(roiBin, out roiContours, out roiHierarchy, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
-
-                                if (roiContours.Length == 0) continue;
-
-                                int roiMaxIdx = 0;
-                                double roiMaxArea = 0;
-                                for (int ci = 0; ci < roiContours.Length; ci++)
-                                {
-                                    double area = Cv2.ContourArea(roiContours[ci]);
-                                    if (area > roiMaxArea)
-                                    {
-                                        roiMaxArea = area;
-                                        roiMaxIdx = ci;
-                                    }
-                                }
-
-                                double matchVal = Cv2.MatchShapes(templateContours[maxIdx], roiContours[roiMaxIdx], ShapeMatchModes.I1, 0);
-                                // matchVal越小越相似
-                                if (matchVal < bestScore)
-                                {
-                                    bestScore = matchVal;
-                                    bestRect = new Rectangle(x, y, winW, winH);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                double similarity = 1.0 / (1.0 + bestScore);
-                LogMatch("HuMoments_BEST", similarity, bestRect, false);
-
-                double huThreshold = Math.Max(0.3, threshold - 0.2);
-                if (similarity >= huThreshold && !bestRect.IsEmpty)
-                {
-                    int markerNo = AddNumberedMarker(bestRect);
-                    if (markerNo > 0)
-                    {
-                        LogMatch("HuMoments_BEST", similarity, bestRect, true, markerNo);
-                        return 1;
-                    }
-                }
-            }
-
-            return 0;
         }
 
         private void CloseAllMarkers()
