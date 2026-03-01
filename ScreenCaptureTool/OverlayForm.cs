@@ -14,6 +14,7 @@ namespace ScreenCaptureTool
     {
         private static readonly object OpenSync = new object();
         private static readonly List<OverlayForm> OpenOverlays = new List<OverlayForm>();
+        public static event Action OpenOverlayStateChanged;
         private static int CaptureSequence = 0;
         private Bitmap image;
         private Settings settings;
@@ -109,6 +110,23 @@ namespace ScreenCaptureTool
             {
                 OpenOverlays.Add(this);
             }
+            NotifyOpenOverlayStateChanged();
+        }
+
+        public static bool HasOpenOverlays
+        {
+            get
+            {
+                lock (OpenSync)
+                {
+                    return OpenOverlays.Count > 0;
+                }
+            }
+        }
+
+        private static void NotifyOpenOverlayStateChanged()
+        {
+            OpenOverlayStateChanged?.Invoke();
         }
 
         protected override CreateParams CreateParams
@@ -845,6 +863,7 @@ namespace ScreenCaptureTool
 
         protected override void Dispose(bool disposing)
         {
+            bool removed = false;
             if (disposing)
             {
                 CloseAllMarkers();
@@ -853,7 +872,11 @@ namespace ScreenCaptureTool
             }
             lock (OpenSync)
             {
-                OpenOverlays.Remove(this);
+                removed = OpenOverlays.Remove(this);
+            }
+            if (removed)
+            {
+                NotifyOpenOverlayStateChanged();
             }
             base.Dispose(disposing);
         }

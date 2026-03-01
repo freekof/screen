@@ -16,6 +16,8 @@ namespace ScreenCaptureTool
         private const int HOTKEY_ID = 1;
         private const int CANCEL_HOTKEY_ID = 2;
         private const int STAMP_HOTKEY_ID = 3;
+        private bool cancelHotkeyRegistered;
+        private bool captureInProgress;
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -65,6 +67,7 @@ namespace ScreenCaptureTool
         {
             InitializeComponent();
             settings = Settings.Load();
+            OverlayForm.OpenOverlayStateChanged += OverlayForm_OpenOverlayStateChanged;
 
             this.Text = "抓屏软件设置";
             this.Size = new Size(380, 620);
@@ -395,17 +398,69 @@ namespace ScreenCaptureTool
                 MessageBox.Show($"无法注册热键 {settings.Hotkey}，可能已被占用。");
             }
             UnregisterHotKey(this.Handle, CANCEL_HOTKEY_ID);
-            bool cancelSuccess = RegisterHotKey(this.Handle, CANCEL_HOTKEY_ID, settings.CancelHotkeyModifiers, settings.CancelHotkeyCode);
-            if (!cancelSuccess)
-            {
-                MessageBox.Show($"无法注册取消热键 {settings.CancelHotkey}，可能已被占用。");
-            }
+            cancelHotkeyRegistered = false;
+            SyncCancelHotKeyRegistration(true);
             UnregisterHotKey(this.Handle, STAMP_HOTKEY_ID);
             bool stampSuccess = RegisterHotKey(this.Handle, STAMP_HOTKEY_ID, settings.StampHotkeyModifiers, settings.StampHotkeyCode);
             if (!stampSuccess)
             {
                 MessageBox.Show($"无法注册印章热键 {settings.StampHotkey}，可能已被占用。");
             }
+        }
+
+        private bool ShouldEnableCancelHotKey()
+        {
+            return captureInProgress || OverlayForm.HasOpenOverlays;
+        }
+
+        private void SyncCancelHotKeyRegistration(bool showError)
+        {
+            if (!this.IsHandleCreated || this.IsDisposed)
+            {
+                return;
+            }
+
+            bool shouldEnable = ShouldEnableCancelHotKey();
+            if (!shouldEnable)
+            {
+                if (cancelHotkeyRegistered)
+                {
+                    UnregisterHotKey(this.Handle, CANCEL_HOTKEY_ID);
+                    cancelHotkeyRegistered = false;
+                }
+                return;
+            }
+
+            if (cancelHotkeyRegistered)
+            {
+                return;
+            }
+
+            bool cancelSuccess = RegisterHotKey(this.Handle, CANCEL_HOTKEY_ID, settings.CancelHotkeyModifiers, settings.CancelHotkeyCode);
+            if (cancelSuccess)
+            {
+                cancelHotkeyRegistered = true;
+            }
+            else if (showError)
+            {
+                MessageBox.Show($"无法注册取消热键 {settings.CancelHotkey}，可能已被占用。");
+            }
+        }
+
+        private void OverlayForm_OpenOverlayStateChanged()
+        {
+            if (this.IsDisposed)
+            {
+                return;
+            }
+
+            if (this.InvokeRequired)
+            {
+                this.BeginInvoke((Action)(() => SyncCancelHotKeyRegistration(false)));
+                return;
+            }
+
+            SyncCancelHotKeyRegistration(false);
         }
 
         protected override void WndProc(ref Message m)
@@ -417,6 +472,7 @@ namespace ScreenCaptureTool
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == CANCEL_HOTKEY_ID)
             {
                 OverlayForm.CloseAllOpen();
+                SyncCancelHotKeyRegistration(false);
             }
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == STAMP_HOTKEY_ID)
             {
@@ -427,14 +483,24 @@ namespace ScreenCaptureTool
 
         private void StartCapture(bool stampMode)
         {
+            captureInProgress = true;
+            SyncCancelHotKeyRegistration(true);
             this.Hide();
-            using (var captureForm = new CaptureForm(settings, stampMode))
+            try
             {
-                if (captureForm.ShowDialog() == DialogResult.OK)
+                using (var captureForm = new CaptureForm(settings, stampMode))
                 {
-                    var overlay = new OverlayForm(captureForm.SelectedImage, captureForm.SelectedRegion, settings);
-                    overlay.Show();
+                    if (captureForm.ShowDialog() == DialogResult.OK)
+                    {
+                        var overlay = new OverlayForm(captureForm.SelectedImage, captureForm.SelectedRegion, settings);
+                        overlay.Show();
+                    }
                 }
+            }
+            finally
+            {
+                captureInProgress = false;
+                SyncCancelHotKeyRegistration(false);
             }
         }
 
@@ -447,8 +513,10 @@ namespace ScreenCaptureTool
             }
             else
             {
+                OverlayForm.OpenOverlayStateChanged -= OverlayForm_OpenOverlayStateChanged;
                 UnregisterHotKey(this.Handle, HOTKEY_ID);
                 UnregisterHotKey(this.Handle, CANCEL_HOTKEY_ID);
+                cancelHotkeyRegistered = false;
                 UnregisterHotKey(this.Handle, STAMP_HOTKEY_ID);
                 trayIcon.Dispose();
             }
