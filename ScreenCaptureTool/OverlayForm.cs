@@ -359,7 +359,7 @@ namespace ScreenCaptureTool
                         // 找不到，在当前窗口中心显示红色 X
                         Rectangle rect = new Rectangle(this.Left + this.Width / 2 - 30, this.Top + this.Height / 2 - 30, 60, 60);
                         EnsureMarkerOverlay();
-                        markerOverlay.AddMarker(rect, "X");
+                        markerOverlay.AddMarker(rect, false, "X");
                     }
                 }
             }
@@ -768,7 +768,7 @@ namespace ScreenCaptureTool
             }
             markerCount++;
             EnsureMarkerOverlay();
-            markerOverlay.AddMarker(rect, markerCount.ToString());
+            markerOverlay.AddMarker(rect, true, null);
             markerRects.Add(rect);
             return markerCount;
         }
@@ -908,7 +908,7 @@ namespace ScreenCaptureTool
         {
             if (markerOverlay == null || markerOverlay.IsDisposed)
             {
-                markerOverlay = new MarkerOverlayForm(settings, currentMatchColor);
+                markerOverlay = new MarkerOverlayForm(settings, currentMatchColor, image);
                 markerOverlay.Show();
             }
             else
@@ -920,14 +920,32 @@ namespace ScreenCaptureTool
 
     public class MarkerOverlayForm : Form
     {
-        private readonly Settings settings;
-        private Color baseColor;
-        private readonly List<(Rectangle Rect, string Text)> markers = new List<(Rectangle, string)>();
+        private readonly struct MarkerItem
+        {
+            public MarkerItem(Rectangle rect, bool showPreview, string text)
+            {
+                Rect = rect;
+                ShowPreview = showPreview;
+                Text = text;
+            }
 
-        public MarkerOverlayForm(Settings settings, Color baseColor)
+            public Rectangle Rect { get; }
+            public bool ShowPreview { get; }
+            public string Text { get; }
+        }
+
+        private readonly Settings settings;
+        private readonly Bitmap previewSource;
+        private readonly Rectangle previewSourceRect;
+        private Color baseColor;
+        private readonly List<MarkerItem> markers = new List<MarkerItem>();
+
+        public MarkerOverlayForm(Settings settings, Color baseColor, Bitmap previewSource)
         {
             this.settings = settings;
             this.baseColor = baseColor;
+            this.previewSource = previewSource;
+            previewSourceRect = BuildPreviewSourceRect(previewSource);
             this.FormBorderStyle = FormBorderStyle.None;
             this.StartPosition = FormStartPosition.Manual;
             this.Bounds = Screen.PrimaryScreen.Bounds;
@@ -950,10 +968,17 @@ namespace ScreenCaptureTool
             }
         }
 
-        public void AddMarker(Rectangle rect, string text)
+        public void AddMarker(Rectangle rect, bool showPreview, string text)
         {
-            markers.Add((rect, text));
+            markers.Add(new MarkerItem(rect, showPreview, text));
             Invalidate();
+        }
+
+        private static Rectangle BuildPreviewSourceRect(Bitmap source)
+        {
+            int startX = Math.Min(source.Width - 1, Math.Max(0, source.Width / 2));
+            int width = Math.Max(1, source.Width - startX);
+            return new Rectangle(startX, 0, width, Math.Max(1, source.Height));
         }
 
         public void SetBaseColor(Color color)
@@ -970,16 +995,41 @@ namespace ScreenCaptureTool
         {
             Graphics g = e.Graphics;
             g.PageUnit = GraphicsUnit.Pixel;
+            using (ImageAttributes imageAttributes = new ImageAttributes())
             using (Pen pen = new Pen(Color.FromArgb(settings.MarkerFillAlpha, baseColor), settings.MarkerBorderThickness))
             using (Font font = new Font("Arial", settings.MarkerFontSize, FontStyle.Bold))
-            using (SolidBrush textBrush = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, baseColor)))  // ← 由 White 改为 baseColor
+            using (SolidBrush textBrush = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, baseColor)))
             using (StringFormat format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
+                ColorMatrix colorMatrix = new ColorMatrix
+                {
+                    Matrix33 = Math.Max(0.1f, Math.Min(1.0f, settings.DefaultOpacity / 100f))
+                };
+                imageAttributes.SetColorMatrix(colorMatrix);
+
                 foreach (var marker in markers)
                 {
                     Rectangle rect = marker.Rect;
+                    if (marker.ShowPreview)
+                    {
+                        int rightHalfX = rect.X + (rect.Width / 2);
+                        Rectangle previewRect = new Rectangle(rightHalfX, rect.Y, Math.Max(1, rect.Right - rightHalfX), rect.Height);
+                        g.DrawImage(
+                            previewSource,
+                            previewRect,
+                            previewSourceRect.X,
+                            previewSourceRect.Y,
+                            previewSourceRect.Width,
+                            previewSourceRect.Height,
+                            GraphicsUnit.Pixel,
+                            imageAttributes);
+                    }
+
                     g.DrawRectangle(pen, rect);
-                    g.DrawString(marker.Text, font, textBrush, rect, format);
+                    if (!string.IsNullOrEmpty(marker.Text))
+                    {
+                        g.DrawString(marker.Text, font, textBrush, rect, format);
+                    }
                 }
             }
         }
