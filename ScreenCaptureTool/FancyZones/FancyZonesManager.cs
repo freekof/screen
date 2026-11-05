@@ -22,6 +22,8 @@ namespace ScreenCaptureTool.FancyZones
         private NativeMethods.WinEventDelegate? winEventProc;
         private IntPtr hookStart;
         private IntPtr hookEnd;
+        private NativeMethods.LowLevelMouseProc? mouseHookProc;
+        private IntPtr mouseHook;
 
         // 拖动状态
         private IntPtr dragHwnd;
@@ -30,6 +32,8 @@ namespace ScreenCaptureTool.FancyZones
         private bool overlayShowing;
         private bool startWasMaximized;
         private bool resizeDetected;
+        private bool rightButtonDown;
+        private bool suppressRightButtonRelease;
         private int anchorZone = -1; // Ctrl 多选锚点
         private Screen? overlayScreen;
         private System.Windows.Forms.Timer? pollTimer;
@@ -66,14 +70,27 @@ namespace ScreenCaptureTool.FancyZones
                 NativeMethods.EVENT_SYSTEM_MOVESIZEEND,
                 IntPtr.Zero, winEventProc, 0, 0,
                 NativeMethods.WINEVENT_OUTOFCONTEXT | NativeMethods.WINEVENT_SKIPOWNPROCESS);
+
+            mouseHookProc = OnLowLevelMouseEvent;
+            mouseHook = NativeMethods.SetWindowsHookEx(
+                NativeMethods.WH_MOUSE_LL, mouseHookProc, IntPtr.Zero, 0);
+            if (mouseHook == IntPtr.Zero)
+            {
+                System.Diagnostics.Debug.WriteLine("Unable to install the FancyZones right-button hook.");
+            }
         }
 
         public void Stop()
         {
             StopPolling();
+            dragActive = false;
             HideOverlay();
             if (hookStart != IntPtr.Zero) { NativeMethods.UnhookWinEvent(hookStart); hookStart = IntPtr.Zero; }
             if (hookEnd != IntPtr.Zero) { NativeMethods.UnhookWinEvent(hookEnd); hookEnd = IntPtr.Zero; }
+            if (mouseHook != IntPtr.Zero) { NativeMethods.UnhookWindowsHookEx(mouseHook); mouseHook = IntPtr.Zero; }
+            mouseHookProc = null;
+            rightButtonDown = false;
+            suppressRightButtonRelease = false;
         }
 
         public void Dispose()
@@ -101,6 +118,35 @@ namespace ScreenCaptureTool.FancyZones
             }
         }
 
+        private IntPtr OnLowLevelMouseEvent(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= NativeMethods.HC_ACTION)
+            {
+                int message = wParam.ToInt32();
+                if (message == NativeMethods.WM_RBUTTONDOWN || message == NativeMethods.WM_RBUTTONDBLCLK)
+                {
+                    rightButtonDown = true;
+                    if (dragActive)
+                    {
+                        suppressRightButtonRelease = true;
+                        return new IntPtr(1);
+                    }
+                }
+                else if (message == NativeMethods.WM_RBUTTONUP)
+                {
+                    bool suppress = dragActive || suppressRightButtonRelease;
+                    rightButtonDown = false;
+                    suppressRightButtonRelease = false;
+                    if (suppress)
+                    {
+                        return new IntPtr(1);
+                    }
+                }
+            }
+
+            return NativeMethods.CallNextHookEx(mouseHook, nCode, wParam, lParam);
+        }
+
         private void OnMoveSizeStart(IntPtr hwnd)
         {
             if (!settings.FancyZonesEnabled) return;
@@ -114,6 +160,8 @@ namespace ScreenCaptureTool.FancyZones
             int ht = result.ToInt32();
             // 如果光标在窗口边缘（Resize），不启动区域吸附
             if (NativeMethods.IsSizeHitTest(ht)) return;
+
+            rightButtonDown = NativeMethods.IsKeyDown(NativeMethods.VK_RBUTTON);
 
             NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT wr);
             Rectangle currentRect = wr.ToRectangle();
@@ -161,6 +209,13 @@ namespace ScreenCaptureTool.FancyZones
                 }
 
                 if (!overlayShowing)
+                {
+                    HideOverlay();
+                    RestoreOriginalSize(hwnd);
+                    return;
+                }
+
+                if (!IsActivationChordDown())
                 {
                     HideOverlay();
                     RestoreOriginalSize(hwnd);
@@ -262,7 +317,7 @@ namespace ScreenCaptureTool.FancyZones
             }
 
             // 检查激活键
-            bool activatorDown = IsActivatorDown();
+            bool activatorDown = IsActivationChordDown();
             if (!activatorDown)
             {
                 if (overlayShowing) HideOverlay();
@@ -508,6 +563,14 @@ namespace ScreenCaptureTool.FancyZones
                 _ => NativeMethods.VK_SHIFT
             };
             return NativeMethods.IsKeyDown(vk);
+        }
+
+        private bool IsActivationChordDown()
+        {
+            bool rightDown = mouseHook != IntPtr.Zero
+                ? rightButtonDown
+                : NativeMethods.IsKeyDown(NativeMethods.VK_RBUTTON);
+            return IsActivatorDown() && rightDown;
         }
 
         private bool IsMultiSelectDown()

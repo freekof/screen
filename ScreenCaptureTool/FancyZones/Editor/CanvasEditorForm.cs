@@ -18,6 +18,7 @@ namespace ScreenCaptureTool.FancyZones
         private readonly Rectangle monitorBounds;
         private readonly Rectangle workArea;
         private readonly Rectangle localWorkArea;
+        private readonly int zoneSpacing;
         private readonly List<Rectangle> zoneRects = new List<Rectangle>();
 
         private int selectedIndex = -1;
@@ -69,12 +70,13 @@ namespace ScreenCaptureTool.FancyZones
             Color.FromArgb(130, 80, 180, 180)
         };
 
-        public CanvasEditorForm(ZoneLayout layout)
+        public CanvasEditorForm(ZoneLayout layout, int spacing)
         {
             if (layout == null) throw new ArgumentNullException(nameof(layout));
 
             this.layout = layout.Clone();
             this.layout.Kind = ScreenCaptureTool.FancyZones.LayoutKind.Canvas;
+            zoneSpacing = Math.Max(0, spacing);
 
             Screen screen = Screen.FromPoint(Cursor.Position);
             monitorBounds = screen.Bounds;
@@ -228,6 +230,12 @@ namespace ScreenCaptureTool.FancyZones
             }
         }
 
+        private List<Rectangle> GetDisplayZoneRects()
+        {
+            SyncModelFromZones();
+            return layout.GetZoneRects(localWorkArea, zoneSpacing);
+        }
+
         private Rectangle ClampZoneRect(Rectangle r)
         {
             int maxW = Math.Max(MinZoneSize, localWorkArea.Width);
@@ -354,11 +362,12 @@ namespace ScreenCaptureTool.FancyZones
             if (e.Button != MouseButtons.Left) return;
 
             Point pt = e.Location;
+            List<Rectangle> displayRects = GetDisplayZoneRects();
 
             // 1. 若已选中区域，优先检查其 8 个缩放手柄与边缘
             if (selectedIndex >= 0 && selectedIndex < zoneRects.Count)
             {
-                ResizeDir dir = HitTestResize(zoneRects[selectedIndex], pt);
+                ResizeDir dir = HitTestResize(displayRects[selectedIndex], pt);
                 if (dir != ResizeDir.None)
                 {
                     dragMode = DragMode.Resize;
@@ -370,11 +379,11 @@ namespace ScreenCaptureTool.FancyZones
             }
 
             // 2. 按 Z 序从顶层到底层检测命中的区域
-            int hit = HitTestZone(pt);
+            int hit = HitTestZone(pt, displayRects);
             if (hit >= 0)
             {
                 selectedIndex = hit;
-                ResizeDir dir = HitTestResize(zoneRects[selectedIndex], pt);
+                ResizeDir dir = HitTestResize(displayRects[selectedIndex], pt);
                 if (dir != ResizeDir.None)
                 {
                     dragMode = DragMode.Resize;
@@ -507,9 +516,10 @@ namespace ScreenCaptureTool.FancyZones
 
         private void UpdateCursorAndHover(Point pt)
         {
+            List<Rectangle> displayRects = GetDisplayZoneRects();
             if (selectedIndex >= 0 && selectedIndex < zoneRects.Count)
             {
-                ResizeDir selDir = HitTestResize(zoneRects[selectedIndex], pt);
+                ResizeDir selDir = HitTestResize(displayRects[selectedIndex], pt);
                 if (selDir != ResizeDir.None)
                 {
                     Cursor = GetCursorForResize(selDir);
@@ -517,7 +527,7 @@ namespace ScreenCaptureTool.FancyZones
                 }
             }
 
-            int hit = HitTestZone(pt);
+            int hit = HitTestZone(pt, displayRects);
             if (hit != hoverIndex)
             {
                 hoverIndex = hit;
@@ -526,7 +536,7 @@ namespace ScreenCaptureTool.FancyZones
 
             if (hit >= 0)
             {
-                ResizeDir dir = HitTestResize(zoneRects[hit], pt);
+                ResizeDir dir = HitTestResize(displayRects[hit], pt);
                 Cursor = dir != ResizeDir.None ? GetCursorForResize(dir) : Cursors.SizeAll;
             }
             else
@@ -537,11 +547,11 @@ namespace ScreenCaptureTool.FancyZones
 
         // ── 命中测试 ──
 
-        private int HitTestZone(Point pt)
+        private static int HitTestZone(Point pt, List<Rectangle> displayRects)
         {
-            for (int i = zoneRects.Count - 1; i >= 0; i--)
+            for (int i = displayRects.Count - 1; i >= 0; i--)
             {
-                if (zoneRects[i].Contains(pt))
+                if (displayRects[i].Contains(pt))
                 {
                     return i;
                 }
@@ -625,6 +635,7 @@ namespace ScreenCaptureTool.FancyZones
             base.OnPaint(e);
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
+            List<Rectangle> displayRects = GetDisplayZoneRects();
 
             // 绘制工作区虚线边框
             using (Pen workPen = new Pen(Color.FromArgb(90, 255, 255, 255), 1) { DashStyle = DashStyle.Dot })
@@ -646,9 +657,9 @@ namespace ScreenCaptureTool.FancyZones
             })
             {
                 // 按顺序绘制（后面的区域在顶层）
-                for (int i = 0; i < zoneRects.Count; i++)
+                for (int i = 0; i < displayRects.Count; i++)
                 {
-                    Rectangle r = zoneRects[i];
+                    Rectangle r = displayRects[i];
                     bool isSelected = i == selectedIndex;
                     bool isHover = i == hoverIndex;
 
@@ -690,7 +701,7 @@ namespace ScreenCaptureTool.FancyZones
                 // 为选中区域绘制 8 个控制手柄
                 if (selectedIndex >= 0 && selectedIndex < zoneRects.Count)
                 {
-                    DrawHandles(g, zoneRects[selectedIndex]);
+                    DrawHandles(g, displayRects[selectedIndex]);
                 }
 
                 // 拖拽新建时的预览框

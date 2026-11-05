@@ -26,7 +26,9 @@ namespace ScreenCaptureTool.FancyZones
             this.settings = settings;
 
             Text = "区域布局编辑器";
-            Size = new Size(720, 520);
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            ClientSize = new Size(720, 520);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
@@ -44,7 +46,8 @@ namespace ScreenCaptureTool.FancyZones
                 Location = new Point(12, 12),
                 Size = new Size(260, 380),
                 DrawMode = DrawMode.OwnerDrawFixed,
-                ItemHeight = 28
+                ItemHeight = 28,
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left
             };
             lstLayouts.DrawItem += LstLayouts_DrawItem;
             lstLayouts.SelectedIndexChanged += (s, e) => previewPanel.Invalidate();
@@ -53,36 +56,36 @@ namespace ScreenCaptureTool.FancyZones
             // 左侧按钮
             int bx = 12, by = 400, bw = 82, bh = 30, gap = 4;
 
-            btnSetActive = new Button { Text = "设为当前", Location = new Point(bx, by), Size = new Size(bw, bh) };
+            btnSetActive = new Button { Text = "设为当前", Location = new Point(bx, by), Size = new Size(bw, bh), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnSetActive.Click += BtnSetActive_Click;
             Controls.Add(btnSetActive);
 
-            btnEdit = new Button { Text = "编辑", Location = new Point(bx + (bw + gap), by), Size = new Size(60, bh) };
+            btnEdit = new Button { Text = "编辑", Location = new Point(bx + (bw + gap), by), Size = new Size(60, bh), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnEdit.Click += BtnEdit_Click;
             Controls.Add(btnEdit);
 
-            btnRename = new Button { Text = "重命名", Location = new Point(bx + (bw + gap) + 64, by), Size = new Size(60, bh) };
+            btnRename = new Button { Text = "重命名", Location = new Point(bx + (bw + gap) + 64, by), Size = new Size(60, bh), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnRename.Click += BtnRename_Click;
             Controls.Add(btnRename);
 
-            btnDuplicate = new Button { Text = "复制", Location = new Point(bx, by + bh + gap), Size = new Size(60, bh) };
+            btnDuplicate = new Button { Text = "复制", Location = new Point(bx, by + bh + gap), Size = new Size(60, bh), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnDuplicate.Click += BtnDuplicate_Click;
             Controls.Add(btnDuplicate);
 
-            btnDelete = new Button { Text = "删除", Location = new Point(bx + 64, by + bh + gap), Size = new Size(60, bh) };
+            btnDelete = new Button { Text = "删除", Location = new Point(bx + 64, by + bh + gap), Size = new Size(60, bh), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnDelete.Click += BtnDelete_Click;
             Controls.Add(btnDelete);
 
             // 新建按钮
-            btnNewGrid = new Button { Text = "+网格", Location = new Point(bx + 130, by + bh + gap), Size = new Size(60, bh) };
+            btnNewGrid = new Button { Text = "+网格", Location = new Point(bx + 130, by + bh + gap), Size = new Size(60, bh), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnNewGrid.Click += (s, e) => NewLayout(LayoutKind.Grid);
             Controls.Add(btnNewGrid);
 
-            btnNewCanvas = new Button { Text = "+画布", Location = new Point(bx + 194, by + bh + gap), Size = new Size(60, bh) };
+            btnNewCanvas = new Button { Text = "+画布", Location = new Point(bx + 194, by + bh + gap), Size = new Size(60, bh), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnNewCanvas.Click += (s, e) => NewLayout(LayoutKind.Canvas);
             Controls.Add(btnNewCanvas);
 
-            btnNewTemplate = new Button { Text = "从模板...", Location = new Point(bx, by + (bh + gap) * 2), Size = new Size(120, bh) };
+            btnNewTemplate = new Button { Text = "从模板...", Location = new Point(bx, by + (bh + gap) * 2), Size = new Size(120, bh), Anchor = AnchorStyles.Bottom | AnchorStyles.Left };
             btnNewTemplate.Click += BtnNewTemplate_Click;
             Controls.Add(btnNewTemplate);
 
@@ -91,13 +94,14 @@ namespace ScreenCaptureTool.FancyZones
             {
                 Location = new Point(290, 12),
                 Size = new Size(400, 380),
-                BorderStyle = BorderStyle.FixedSingle
+                BorderStyle = BorderStyle.FixedSingle,
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
             };
             previewPanel.Paint += PreviewPanel_Paint;
             Controls.Add(previewPanel);
 
             // 关闭
-            btnClose = new Button { Text = "关闭", Location = new Point(590, by + (bh + gap) * 2), Size = new Size(100, 36) };
+            btnClose = new Button { Text = "关闭", Location = new Point(590, by + (bh + gap) * 2), Size = new Size(100, 36), Anchor = AnchorStyles.Bottom | AnchorStyles.Right };
             btnClose.Click += (s, e) => Close();
             Controls.Add(btnClose);
         }
@@ -164,7 +168,11 @@ namespace ScreenCaptureTool.FancyZones
 
             g.FillRectangle(Brushes.Black, area);
 
-            var zones = layout.GetZoneRects(area, Math.Max(0, settings.FancyZonesSpacing / 4));
+            Rectangle monitorWorkArea = Screen.FromControl(this).WorkingArea;
+            double previewScale = Math.Min(pw / (double)Math.Max(1, monitorWorkArea.Width),
+                ph / (double)Math.Max(1, monitorWorkArea.Height));
+            int previewSpacing = (int)Math.Round(settings.FancyZonesSpacing * previewScale);
+            var zones = layout.GetZoneRects(area, previewSpacing);
             Color[] colors = {
                 Color.FromArgb(100, 60, 130, 255),
                 Color.FromArgb(100, 255, 160, 60),
@@ -217,7 +225,7 @@ namespace ScreenCaptureTool.FancyZones
 
             if (clone.Kind == LayoutKind.Grid)
             {
-                using (var editor = new GridEditorForm(clone))
+                using (var editor = new GridEditorForm(clone, settings.FancyZonesSpacing))
                 {
                     if (editor.ShowDialog(this) == DialogResult.OK)
                     {
@@ -228,7 +236,7 @@ namespace ScreenCaptureTool.FancyZones
             }
             else
             {
-                using (var editor = new CanvasEditorForm(clone))
+                using (var editor = new CanvasEditorForm(clone, settings.FancyZonesSpacing))
                 {
                     if (editor.ShowDialog(this) == DialogResult.OK)
                     {

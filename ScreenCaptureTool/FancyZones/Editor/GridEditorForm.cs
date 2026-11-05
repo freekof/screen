@@ -18,6 +18,7 @@ namespace ScreenCaptureTool.FancyZones
         public ZoneLayout EditedLayout => layout;
 
         private readonly Rectangle workArea;
+        private readonly int spacing;
         private readonly List<Rectangle> zoneRects = new List<Rectangle>();
         private int hoverZone = -1;
         private int dragBoundary = -1; // -1 = none
@@ -30,10 +31,11 @@ namespace ScreenCaptureTool.FancyZones
         private const int MinCellPercent = 3; // 最小 3%
         private Panel toolbar;
 
-        public GridEditorForm(ZoneLayout layout)
+        public GridEditorForm(ZoneLayout layout, int spacing)
         {
             this.layout = layout.Clone();
             this.layout.Normalize();
+            this.spacing = Math.Max(0, spacing);
 
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
@@ -91,7 +93,7 @@ namespace ScreenCaptureTool.FancyZones
         private void RecalcZones()
         {
             zoneRects.Clear();
-            zoneRects.AddRange(layout.GetZoneRects(workArea, 4));
+            zoneRects.AddRange(layout.GetZoneRects(workArea, spacing));
         }
 
         // ── 鼠标事件 ──

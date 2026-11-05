@@ -130,14 +130,15 @@ namespace ScreenCaptureTool.FancyZones
         }
 
         /// <summary>
-        /// 计算区域在给定工作区（物理像素）中的实际矩形，已应用区域间距。
-        /// 外边缘与区域之间的间距均为 spacing。
+        /// 计算区域在给定工作区（物理像素）中的实际矩形，已应用相邻区域间距。
+        /// 接触工作区边缘的区域边界保持贴边。
         /// </summary>
         public List<Rectangle> GetZoneRects(Rectangle workArea, int spacing)
         {
             spacing = Math.Max(0, spacing);
-            int half = spacing / 2;
-            Rectangle area = Rectangle.Inflate(workArea, -half, -half);
+            int lowInset = spacing / 2;
+            int highInset = spacing - lowInset;
+            const double edgeTolerance = 0.000001;
             var result = new List<Rectangle>();
             foreach (var f in GetZoneFractions())
             {
@@ -146,17 +147,31 @@ namespace ScreenCaptureTool.FancyZones
                     result.Add(Rectangle.Empty);
                     continue;
                 }
-                int left = area.X + (int)Math.Round(f.X * area.Width);
-                int top = area.Y + (int)Math.Round(f.Y * area.Height);
-                int right = area.X + (int)Math.Round((f.X + f.Width) * area.Width);
-                int bottom = area.Y + (int)Math.Round((f.Y + f.Height) * area.Height);
-                Rectangle r = Rectangle.FromLTRB(left, top, right, bottom);
-                r.Inflate(-(spacing - half), -(spacing - half));
+
+                int left = workArea.X + (int)Math.Round(f.X * workArea.Width);
+                int top = workArea.Y + (int)Math.Round(f.Y * workArea.Height);
+                int right = workArea.X + (int)Math.Round((f.X + f.Width) * workArea.Width);
+                int bottom = workArea.Y + (int)Math.Round((f.Y + f.Height) * workArea.Height);
+
+                // Keep zones flush with the work-area perimeter; apply spacing only on
+                // interior boundaries so the editor outline and snapped window coincide.
+                int insetLeft = f.X <= edgeTolerance ? 0 : lowInset;
+                int insetTop = f.Y <= edgeTolerance ? 0 : lowInset;
+                int insetRight = f.X + f.Width >= 1.0 - edgeTolerance ? 0 : highInset;
+                int insetBottom = f.Y + f.Height >= 1.0 - edgeTolerance ? 0 : highInset;
+
+                Rectangle raw = Rectangle.FromLTRB(left, top, right, bottom);
+                Rectangle r = Rectangle.FromLTRB(
+                    left + insetLeft,
+                    top + insetTop,
+                    right - insetRight,
+                    bottom - insetBottom);
                 if (r.Width < 1 || r.Height < 1)
                 {
-                    r = Rectangle.FromLTRB(left, top, Math.Max(left + 1, right), Math.Max(top + 1, bottom));
+                    r = raw;
                 }
-                result.Add(r);
+
+                result.Add(Rectangle.Intersect(workArea, r));
             }
             return result;
         }

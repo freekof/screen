@@ -225,7 +225,7 @@ namespace ScreenCaptureTool
             txtFancyZonesHotkey.KeyDown += TxtFancyZonesHotkey_KeyDown;
             y += rowH;
 
-            var lblActivationKey = new Label { Text = "拖动激活键:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            var lblActivationKey = new Label { Text = "按住激活键+右键显示区域:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
             cmbFancyZonesActivationKey = new ComboBox
             {
                 Location = new Point(inputX, y),
