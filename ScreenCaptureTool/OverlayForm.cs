@@ -976,10 +976,8 @@ namespace ScreenCaptureTool
             this.TopMost = true;
             this.ShowInTaskbar = false;
             this.AutoScaleMode = AutoScaleMode.None;
-            // Use an unlikely key color; the old Lime key could collide with screenshot pixels.
-            Color keyColor = Color.FromArgb(1, 0, 1);
-            this.BackColor = keyColor;
-            this.TransparencyKey = keyColor;
+            this.BackColor = Color.Lime;
+            this.TransparencyKey = Color.Lime;
             this.DoubleBuffered = true;
             this.ContextMenuStrip = new ContextMenuStrip();
         }
@@ -1002,8 +1000,41 @@ namespace ScreenCaptureTool
 
         private static Rectangle BuildPreviewSourceRect(Bitmap source)
         {
-            int startX = Math.Max(0, source.Width / 2);
-            return new Rectangle(startX, 0, Math.Max(1, source.Width - startX), Math.Max(1, source.Height));
+            int startX = Math.Min(source.Width - 1, Math.Max(0, source.Width / 2));
+            int endX = source.Width - 1;
+            int minX = endX;
+            int minY = source.Height - 1;
+            int maxX = startX;
+            int maxY = 0;
+            bool found = false;
+
+            for (int y = 0; y < source.Height; y++)
+            {
+                for (int x = startX; x < source.Width; x++)
+                {
+                    Color pixel = source.GetPixel(x, y);
+                    if (IsPreviewForeground(pixel))
+                    {
+                        if (x < minX) minX = x;
+                        if (y < minY) minY = y;
+                        if (x > maxX) maxX = x;
+                        if (y > maxY) maxY = y;
+                        found = true;
+                    }
+                }
+            }
+
+            if (!found)
+            {
+                return new Rectangle(startX, 0, Math.Max(1, source.Width - startX), Math.Max(1, source.Height));
+            }
+
+            return Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
+        }
+
+        private static bool IsPreviewForeground(Color pixel)
+        {
+            return pixel.A > 16 && !(pixel.R >= 230 && pixel.G >= 230 && pixel.B >= 230);
         }
 
         public void SetBaseColor(Color color)
@@ -1020,34 +1051,27 @@ namespace ScreenCaptureTool
         {
             Graphics g = e.Graphics;
             g.PageUnit = GraphicsUnit.Pixel;
+            using (ImageAttributes imageAttributes = new ImageAttributes())
             using (Pen pen = new Pen(Color.FromArgb(settings.MarkerFillAlpha, baseColor), settings.MarkerBorderThickness))
             using (Font font = new Font("Arial", settings.MarkerFontSize, FontStyle.Bold))
             using (SolidBrush textBrush = new SolidBrush(Color.FromArgb(settings.MarkerFillAlpha, baseColor)))
             using (StringFormat format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
+                ColorMatrix colorMatrix = new ColorMatrix
+                {
+                    Matrix33 = Math.Max(0.1f, Math.Min(1.0f, settings.DefaultOpacity / 100f))
+                };
+                imageAttributes.SetColorMatrix(colorMatrix);
+
                 foreach (var marker in markers)
                 {
                     Rectangle rect = marker.Rect;
                     if (marker.ShowPreview)
                     {
-                        double scaleX = rect.Width / (double)Math.Max(1, previewSource.Width);
-                        double scaleY = rect.Height / (double)Math.Max(1, previewSource.Height);
-                        Rectangle previewRect = new Rectangle(
-                            rect.X + (int)Math.Round(previewSourceRect.X * scaleX),
-                            rect.Y + (int)Math.Round(previewSourceRect.Y * scaleY),
-                            Math.Max(1, (int)Math.Round(previewSourceRect.Width * scaleX)),
-                            Math.Max(1, (int)Math.Round(previewSourceRect.Height * scaleY)));
-
-                        if (Math.Abs(scaleX - 1.0) < 0.01 && Math.Abs(scaleY - 1.0) < 0.01)
-                        {
-                            g.InterpolationMode = InterpolationMode.NearestNeighbor;
-                            g.PixelOffsetMode = PixelOffsetMode.Half;
-                        }
-                        else
-                        {
-                            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                            g.PixelOffsetMode = PixelOffsetMode.Half;
-                        }
+                        double scale = rect.Height / (double)Math.Max(1, previewSourceRect.Height);
+                        int previewWidth = Math.Max(1, (int)Math.Round(previewSourceRect.Width * scale));
+                        int previewX = rect.Right - previewWidth;
+                        Rectangle previewRect = new Rectangle(previewX, rect.Y, previewWidth, rect.Height);
                         g.DrawImage(
                             previewSource,
                             previewRect,
@@ -1055,7 +1079,8 @@ namespace ScreenCaptureTool
                             previewSourceRect.Y,
                             previewSourceRect.Width,
                             previewSourceRect.Height,
-                            GraphicsUnit.Pixel);
+                            GraphicsUnit.Pixel,
+                            imageAttributes);
                     }
 
                     g.DrawRectangle(pen, rect);

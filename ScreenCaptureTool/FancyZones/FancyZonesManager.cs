@@ -73,10 +73,12 @@ namespace ScreenCaptureTool.FancyZones
 
             mouseHookProc = OnLowLevelMouseEvent;
             mouseHook = NativeMethods.SetWindowsHookEx(
-                NativeMethods.WH_MOUSE_LL, mouseHookProc, IntPtr.Zero, 0);
+                NativeMethods.WH_MOUSE_LL, mouseHookProc,
+                NativeMethods.GetModuleHandle(null), 0);
             if (mouseHook == IntPtr.Zero)
             {
-                System.Diagnostics.Debug.WriteLine("Unable to install the FancyZones right-button hook.");
+                System.Diagnostics.Debug.WriteLine(
+                    $"Unable to install the FancyZones right-button hook (Win32 error {Marshal.GetLastWin32Error()}).");
             }
         }
 
@@ -567,9 +569,9 @@ namespace ScreenCaptureTool.FancyZones
 
         private bool IsActivationChordDown()
         {
-            bool rightDown = mouseHook != IntPtr.Zero
-                ? rightButtonDown
-                : NativeMethods.IsKeyDown(NativeMethods.VK_RBUTTON);
+            // Prefer the physical button state so the overlay still responds if the hook
+            // callback is delayed; the hook state covers the interval around swallowed events.
+            bool rightDown = rightButtonDown || NativeMethods.IsKeyDown(NativeMethods.VK_RBUTTON);
             return IsActivatorDown() && rightDown;
         }
 

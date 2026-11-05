@@ -41,6 +41,9 @@ namespace ScreenCaptureTool.FancyZones
         public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc callback,
             IntPtr hInstance, uint threadId);
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr GetModuleHandle(string? moduleName);
+
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool UnhookWindowsHookEx(IntPtr hook);
