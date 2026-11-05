@@ -1,0 +1,7 @@
+bin/
+obj/
+publish/
+.vs/
+*.user
+p - 副本/
+q/

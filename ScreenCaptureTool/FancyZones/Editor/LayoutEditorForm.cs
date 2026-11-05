@@ -1,0 +1,374 @@
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Linq;
+using System.Windows.Forms;
+
+namespace ScreenCaptureTool.FancyZones
+{
+    /// <summary>
+    /// 布局管理器主窗口：列表管理 + 预览。
+    /// </summary>
+    public sealed class LayoutEditorForm : Form
+    {
+        private readonly ZoneStore store;
+        private readonly Settings settings;
+        private ListBox lstLayouts;
+        private Panel previewPanel;
+        private Button btnSetActive, btnEdit, btnDuplicate, btnDelete, btnRename;
+        private Button btnNewGrid, btnNewCanvas, btnNewTemplate;
+        private Button btnClose;
+
+        public LayoutEditorForm(ZoneStore store, Settings settings)
+        {
+            this.store = store;
+            this.settings = settings;
+
+            Text = "区域布局编辑器";
+            Size = new Size(720, 520);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            MaximizeBox = false;
+            StartPosition = FormStartPosition.CenterScreen;
+            ShowInTaskbar = true;
+
+            BuildUI();
+            RefreshList();
+        }
+
+        private void BuildUI()
+        {
+            // 左侧列表
+            lstLayouts = new ListBox
+            {
+                Location = new Point(12, 12),
+                Size = new Size(260, 380),
+                DrawMode = DrawMode.OwnerDrawFixed,
+                ItemHeight = 28
+            };
+            lstLayouts.DrawItem += LstLayouts_DrawItem;
+            lstLayouts.SelectedIndexChanged += (s, e) => previewPanel.Invalidate();
+            Controls.Add(lstLayouts);
+
+            // 左侧按钮
+            int bx = 12, by = 400, bw = 82, bh = 30, gap = 4;
+
+            btnSetActive = new Button { Text = "设为当前", Location = new Point(bx, by), Size = new Size(bw, bh) };
+            btnSetActive.Click += BtnSetActive_Click;
+            Controls.Add(btnSetActive);
+
+            btnEdit = new Button { Text = "编辑", Location = new Point(bx + (bw + gap), by), Size = new Size(60, bh) };
+            btnEdit.Click += BtnEdit_Click;
+            Controls.Add(btnEdit);
+
+            btnRename = new Button { Text = "重命名", Location = new Point(bx + (bw + gap) + 64, by), Size = new Size(60, bh) };
+            btnRename.Click += BtnRename_Click;
+            Controls.Add(btnRename);
+
+            btnDuplicate = new Button { Text = "复制", Location = new Point(bx, by + bh + gap), Size = new Size(60, bh) };
+            btnDuplicate.Click += BtnDuplicate_Click;
+            Controls.Add(btnDuplicate);
+
+            btnDelete = new Button { Text = "删除", Location = new Point(bx + 64, by + bh + gap), Size = new Size(60, bh) };
+            btnDelete.Click += BtnDelete_Click;
+            Controls.Add(btnDelete);
+
+            // 新建按钮
+            btnNewGrid = new Button { Text = "+网格", Location = new Point(bx + 130, by + bh + gap), Size = new Size(60, bh) };
+            btnNewGrid.Click += (s, e) => NewLayout(LayoutKind.Grid);
+            Controls.Add(btnNewGrid);
+
+            btnNewCanvas = new Button { Text = "+画布", Location = new Point(bx + 194, by + bh + gap), Size = new Size(60, bh) };
+            btnNewCanvas.Click += (s, e) => NewLayout(LayoutKind.Canvas);
+            Controls.Add(btnNewCanvas);
+
+            btnNewTemplate = new Button { Text = "从模板...", Location = new Point(bx, by + (bh + gap) * 2), Size = new Size(120, bh) };
+            btnNewTemplate.Click += BtnNewTemplate_Click;
+            Controls.Add(btnNewTemplate);
+
+            // 右侧预览
+            previewPanel = new Panel
+            {
+                Location = new Point(290, 12),
+                Size = new Size(400, 380),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+            previewPanel.Paint += PreviewPanel_Paint;
+            Controls.Add(previewPanel);
+
+            // 关闭
+            btnClose = new Button { Text = "关闭", Location = new Point(590, by + (bh + gap) * 2), Size = new Size(100, 36) };
+            btnClose.Click += (s, e) => Close();
+            Controls.Add(btnClose);
+        }
+
+        private void RefreshList()
+        {
+            lstLayouts.Items.Clear();
+            foreach (var layout in store.Data.Layouts)
+            {
+                lstLayouts.Items.Add(layout);
+            }
+            // 选中当前活动的
+            var active = store.ActiveLayout;
+            if (active != null)
+            {
+                int idx = store.Data.Layouts.IndexOf(active);
+                if (idx >= 0) lstLayouts.SelectedIndex = idx;
+            }
+            previewPanel.Invalidate();
+        }
+
+        private ZoneLayout? SelectedLayout =>
+            lstLayouts.SelectedItem as ZoneLayout;
+
+        // ── 列表绘制 ──
+
+        private void LstLayouts_DrawItem(object? sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0) return;
+            e.DrawBackground();
+            var layout = (ZoneLayout)lstLayouts.Items[e.Index];
+            bool isActive = layout.Id == store.Data.ActiveLayoutId;
+            string kind = layout.Kind == LayoutKind.Grid ? "网格" : "画布";
+            string text = $"{(isActive ? "★ " : "")}{layout.Name}  [{kind}, {layout.ZoneCount}区域]";
+
+            using (SolidBrush brush = new SolidBrush(e.ForeColor))
+            {
+                e.Graphics.DrawString(text, e.Font!, brush, e.Bounds.X + 4, e.Bounds.Y + 4);
+            }
+            e.DrawFocusRectangle();
+        }
+
+        // ── 预览 ──
+
+        private void PreviewPanel_Paint(object? sender, PaintEventArgs e)
+        {
+            var layout = SelectedLayout;
+            if (layout == null) return;
+
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            // 16:9 预览区域
+            int pw = previewPanel.ClientSize.Width - 20;
+            int ph = (int)(pw * 9.0 / 16.0);
+            if (ph > previewPanel.ClientSize.Height - 20)
+            {
+                ph = previewPanel.ClientSize.Height - 20;
+                pw = (int)(ph * 16.0 / 9.0);
+            }
+            int px = (previewPanel.ClientSize.Width - pw) / 2;
+            int py = (previewPanel.ClientSize.Height - ph) / 2;
+            Rectangle area = new Rectangle(px, py, pw, ph);
+
+            g.FillRectangle(Brushes.Black, area);
+
+            var zones = layout.GetZoneRects(area, Math.Max(0, settings.FancyZonesSpacing / 4));
+            Color[] colors = {
+                Color.FromArgb(100, 60, 130, 255),
+                Color.FromArgb(100, 255, 160, 60),
+                Color.FromArgb(100, 60, 200, 120),
+                Color.FromArgb(100, 200, 60, 180),
+                Color.FromArgb(100, 60, 200, 220),
+                Color.FromArgb(100, 220, 220, 60)
+            };
+
+            for (int i = 0; i < zones.Count; i++)
+            {
+                Color c = colors[i % colors.Length];
+                using (SolidBrush fb = new SolidBrush(c))
+                {
+                    g.FillRectangle(fb, zones[i]);
+                }
+                using (Pen pen = new Pen(Color.FromArgb(200, c.R, c.G, c.B), 2))
+                {
+                    g.DrawRectangle(pen, zones[i]);
+                }
+                using (Font font = new Font("Segoe UI", 14, FontStyle.Bold))
+                using (StringFormat sf = new StringFormat
+                {
+                    Alignment = StringAlignment.Center,
+                    LineAlignment = StringAlignment.Center
+                })
+                {
+                    g.DrawString((i + 1).ToString(), font, Brushes.White,
+                        new RectangleF(zones[i].X, zones[i].Y, zones[i].Width, zones[i].Height), sf);
+                }
+            }
+        }
+
+        // ── 按钮事件 ──
+
+        private void BtnSetActive_Click(object? sender, EventArgs e)
+        {
+            var layout = SelectedLayout;
+            if (layout == null) return;
+            store.SetActive(layout.Id);
+            RefreshList();
+        }
+
+        private void BtnEdit_Click(object? sender, EventArgs e)
+        {
+            var layout = SelectedLayout;
+            if (layout == null) return;
+
+            var clone = layout.Clone();
+
+            if (clone.Kind == LayoutKind.Grid)
+            {
+                using (var editor = new GridEditorForm(clone))
+                {
+                    if (editor.ShowDialog(this) == DialogResult.OK)
+                    {
+                        store.AddOrUpdate(editor.EditedLayout);
+                        RefreshList();
+                    }
+                }
+            }
+            else
+            {
+                using (var editor = new CanvasEditorForm(clone))
+                {
+                    if (editor.ShowDialog(this) == DialogResult.OK)
+                    {
+                        store.AddOrUpdate(editor.EditedLayout);
+                        RefreshList();
+                    }
+                }
+            }
+        }
+
+        private void BtnRename_Click(object? sender, EventArgs e)
+        {
+            var layout = SelectedLayout;
+            if (layout == null) return;
+            string? name = ShowInputBox("重命名", "输入新名称:", layout.Name);
+            if (string.IsNullOrWhiteSpace(name)) return;
+            layout.Name = name.Trim();
+            store.AddOrUpdate(layout);
+            RefreshList();
+        }
+
+        private void BtnDuplicate_Click(object? sender, EventArgs e)
+        {
+            var layout = SelectedLayout;
+            if (layout == null) return;
+            var dup = layout.Clone();
+            dup.Id = Guid.NewGuid().ToString("N");
+            dup.Name = layout.Name + " (副本)";
+            store.AddOrUpdate(dup);
+            RefreshList();
+        }
+
+        private void BtnDelete_Click(object? sender, EventArgs e)
+        {
+            var layout = SelectedLayout;
+            if (layout == null) return;
+            if (!store.Remove(layout.Id))
+            {
+                MessageBox.Show("至少保留一个布局。");
+            }
+            RefreshList();
+        }
+
+        private void BtnNewTemplate_Click(object? sender, EventArgs e)
+        {
+            // 简单对话框选择模板类型和数量
+            using (var dlg = new Form())
+            {
+                dlg.Text = "从模板创建";
+                dlg.Size = new Size(300, 200);
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.MaximizeBox = false;
+                dlg.MinimizeBox = false;
+
+                var lblType = new Label { Text = "模板:", Location = new Point(12, 18), AutoSize = true };
+                var cmbType = new ComboBox
+                {
+                    Location = new Point(70, 15), Size = new Size(200, 23),
+                    DropDownStyle = ComboBoxStyle.DropDownList
+                };
+                foreach (LayoutTemplateType t in Enum.GetValues(typeof(LayoutTemplateType)))
+                {
+                    cmbType.Items.Add(LayoutTemplates.GetDisplayName(t));
+                }
+                cmbType.SelectedIndex = 0;
+
+                var lblCount = new Label { Text = "区域数:", Location = new Point(12, 52), AutoSize = true };
+                var nudCount = new NumericUpDown
+                {
+                    Location = new Point(70, 49), Size = new Size(80, 23),
+                    Minimum = 1, Maximum = 16, Value = 3
+                };
+
+                var btnOk = new Button { Text = "确定", DialogResult = DialogResult.OK, Location = new Point(70, 100), Size = new Size(80, 30) };
+                var btnCancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Location = new Point(160, 100), Size = new Size(80, 30) };
+
+                dlg.Controls.AddRange(new Control[] { lblType, cmbType, lblCount, nudCount, btnOk, btnCancel });
+                dlg.AcceptButton = btnOk;
+                dlg.CancelButton = btnCancel;
+
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                {
+                    var tt = (LayoutTemplateType)cmbType.SelectedIndex;
+                    int n = (int)nudCount.Value;
+                    var layout = LayoutTemplates.Create(tt, n);
+                    store.AddOrUpdate(layout);
+                    RefreshList();
+                }
+            }
+        }
+
+        private static string? ShowInputBox(string title, string prompt, string defaultValue)
+        {
+            using (var dlg = new Form())
+            {
+                dlg.Text = title;
+                dlg.Size = new Size(340, 160);
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.StartPosition = FormStartPosition.CenterParent;
+                dlg.MaximizeBox = false;
+                dlg.MinimizeBox = false;
+
+                var lbl = new Label { Text = prompt, Location = new Point(12, 15), AutoSize = true };
+                var txt = new TextBox { Text = defaultValue, Location = new Point(12, 40), Size = new Size(300, 23) };
+                var btnOk = new Button { Text = "确定", DialogResult = DialogResult.OK, Location = new Point(150, 80), Size = new Size(75, 28) };
+                var btnCancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Location = new Point(235, 80), Size = new Size(75, 28) };
+
+                dlg.Controls.AddRange(new Control[] { lbl, txt, btnOk, btnCancel });
+                dlg.AcceptButton = btnOk;
+                dlg.CancelButton = btnCancel;
+
+                return dlg.ShowDialog() == DialogResult.OK ? txt.Text : null;
+            }
+        }
+
+        private void NewLayout(LayoutKind kind)
+        {
+            ZoneLayout layout;
+            if (kind == LayoutKind.Grid)
+            {
+                layout = LayoutTemplates.Create(LayoutTemplateType.Columns, 2);
+                layout.Id = Guid.NewGuid().ToString("N");
+                layout.Name = "新网格布局";
+            }
+            else
+            {
+                layout = new ZoneLayout
+                {
+                    Name = "新画布布局",
+                    Kind = LayoutKind.Canvas,
+                    CanvasZones = new List<ZoneRect> { new ZoneRect(0.1, 0.1, 0.8, 0.8) }
+                };
+            }
+            store.AddOrUpdate(layout);
+            RefreshList();
+
+            // 直接进入编辑
+            lstLayouts.SelectedIndex = store.Data.Layouts.FindIndex(l => l.Id == layout.Id);
+            BtnEdit_Click(null, EventArgs.Empty);
+        }
+    }
+}

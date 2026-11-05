@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.IO;
 using System.Collections.Generic;
 using System.Globalization;
+using ScreenCaptureTool.FancyZones;
 
 namespace ScreenCaptureTool
 {
@@ -16,8 +17,21 @@ namespace ScreenCaptureTool
         private const int HOTKEY_ID = 1;
         private const int CANCEL_HOTKEY_ID = 2;
         private const int STAMP_HOTKEY_ID = 3;
+        private const int FANCY_ZONES_EDITOR_HOTKEY_ID = 4;
+        private const uint MOD_NOREPEAT = 0x4000;
         private bool cancelHotkeyRegistered;
         private bool captureInProgress;
+        private ZoneStore zoneStore;
+        private FancyZonesManager fancyZonesManager;
+        private ToolStripMenuItem zonesEnabledMenuItem;
+
+        private CheckBox chkFancyZonesEnabled;
+        private TextBox txtFancyZonesHotkey;
+        private ComboBox cmbFancyZonesActivationKey;
+        private TextBox txtFancyZonesSpacing;
+        private CheckBox chkFancyZonesRestoreSize;
+        private TextBox txtFancyZonesExcludedApps;
+        private Button btnOpenLayoutEditor;
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -66,25 +80,30 @@ namespace ScreenCaptureTool
         public MainForm()
         {
             InitializeComponent();
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
             settings = Settings.Load();
+            zoneStore = ZoneStore.Load();
+            fancyZonesManager = new FancyZonesManager(settings, zoneStore);
             OverlayForm.OpenOverlayStateChanged += OverlayForm_OpenOverlayStateChanged;
 
             this.Text = "抓屏软件设置";
-            this.Size = new Size(380, 620);
+            this.Size = new Size(460, 840);
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
             this.StartPosition = FormStartPosition.CenterScreen;
 
             SetupTrayIcon();
             SetupUI();
+            UpdateFancyZonesState();
         }
 
         private void SetupUI()
         {
             const int labelX = 20;
-            const int inputX = 250;
-            const int inputW = 85;
-            const int labelW = 220;
+            const int inputX = 305;
+            const int inputW = 100;
+            const int labelW = 275;
             const int rowH = 28;
 
             settingsPanel = new Panel
@@ -183,6 +202,77 @@ namespace ScreenCaptureTool
             txtStampStep = new TextBox { Text = settings.StampWheelScaleStepPercent.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
             y += rowH + 12;
 
+            // === 窗口区域布局 (FancyZones) ===
+            chkFancyZonesEnabled = new CheckBox
+            {
+                Text = "启用窗口区域吸附",
+                Checked = settings.FancyZonesEnabled,
+                Location = new Point(labelX, y + 2),
+                Size = new Size(labelW, 22)
+            };
+            y += rowH;
+
+            var lblZonesHotkey = new Label { Text = "布局编辑器快捷键:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtFancyZonesHotkey = new TextBox
+            {
+                Text = settings.FancyZonesEditorHotkey,
+                Location = new Point(inputX, y),
+                Size = new Size(inputW, 23),
+                ReadOnly = true,
+                BackColor = Color.White,
+                TextAlign = HorizontalAlignment.Center
+            };
+            txtFancyZonesHotkey.KeyDown += TxtFancyZonesHotkey_KeyDown;
+            y += rowH;
+
+            var lblActivationKey = new Label { Text = "拖动激活键:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            cmbFancyZonesActivationKey = new ComboBox
+            {
+                Location = new Point(inputX, y),
+                Size = new Size(inputW, 23),
+                DropDownStyle = ComboBoxStyle.DropDownList
+            };
+            cmbFancyZonesActivationKey.Items.AddRange(new object[] { "Shift", "Ctrl", "Alt" });
+            cmbFancyZonesActivationKey.SelectedIndex = Math.Clamp(settings.FancyZonesActivationKey, 0, 2);
+            y += rowH;
+
+            var lblSpacing = new Label { Text = "区域间距 (0-50)px:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtFancyZonesSpacing = new TextBox
+            {
+                Text = settings.FancyZonesSpacing.ToString(),
+                Location = new Point(inputX, y),
+                Size = new Size(inputW, 23)
+            };
+            y += rowH;
+
+            chkFancyZonesRestoreSize = new CheckBox
+            {
+                Text = "拖出区域时恢复窗口原尺寸",
+                Checked = settings.FancyZonesRestoreSize,
+                Location = new Point(labelX, y + 2),
+                Size = new Size(labelW, 22)
+            };
+            y += rowH;
+
+            var lblExcludedApps = new Label { Text = "排除程序 (逗号分隔):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtFancyZonesExcludedApps = new TextBox
+            {
+                Text = settings.FancyZonesExcludedApps,
+                Location = new Point(inputX, y),
+                Size = new Size(inputW, 23)
+            };
+            y += rowH + 6;
+
+            btnOpenLayoutEditor = new Button
+            {
+                Text = "打开区域布局编辑器",
+                Location = new Point(labelX, y),
+                Size = new Size(180, 32),
+                BackColor = Color.LightSteelBlue
+            };
+            btnOpenLayoutEditor.Click += (s, e) => OpenLayoutEditor();
+            y += 40;
+
             // === 按钮 ===
             btnApply = new Button { Text = "保存并隐藏", Location = new Point(labelX, y), Size = new Size(130, 38), BackColor = Color.LightGray };
             btnApply.Click += (s, e) => {
@@ -200,6 +290,7 @@ namespace ScreenCaptureTool
                 if (!TryReadInt("印章框宽度", txtStampWidth, 20, 800, out int stampWidth)) return;
                 if (!TryReadInt("印章框高度", txtStampHeight, 20, 800, out int stampHeight)) return;
                 if (!TryReadInt("滚轮缩放步进", txtStampStep, 5, 30, out int stampStep)) return;
+                if (!TryReadInt("区域间距", txtFancyZonesSpacing, 0, 50, out int zoneSpacing)) return;
 
                 settings.SimilarityThresholdPercent = similarity;
                 settings.ColorSimilarityThreshold = colorSimilarity;
@@ -215,8 +306,15 @@ namespace ScreenCaptureTool
                 settings.StampBoxWidth = stampWidth;
                 settings.StampBoxHeight = stampHeight;
                 settings.StampWheelScaleStepPercent = stampStep;
+                settings.FancyZonesEnabled = chkFancyZonesEnabled.Checked;
+                zonesEnabledMenuItem.Checked = settings.FancyZonesEnabled;
+                settings.FancyZonesActivationKey = Math.Clamp(cmbFancyZonesActivationKey.SelectedIndex, 0, 2);
+                settings.FancyZonesSpacing = zoneSpacing;
+                settings.FancyZonesRestoreSize = chkFancyZonesRestoreSize.Checked;
+                settings.FancyZonesExcludedApps = txtFancyZonesExcludedApps.Text.Trim();
                 settings.Save();
                 UpdateHotKey();
+                UpdateFancyZonesState();
                 this.Hide();
                 trayIcon.ShowBalloonTip(2000, "设置已保存", $"程序已隐藏，按 {settings.Hotkey} 开始截图", ToolTipIcon.Info);
             };
@@ -258,6 +356,17 @@ namespace ScreenCaptureTool
             settingsPanel.Controls.Add(txtStampHeight);
             settingsPanel.Controls.Add(lblStampStep);
             settingsPanel.Controls.Add(txtStampStep);
+            settingsPanel.Controls.Add(chkFancyZonesEnabled);
+            settingsPanel.Controls.Add(lblZonesHotkey);
+            settingsPanel.Controls.Add(txtFancyZonesHotkey);
+            settingsPanel.Controls.Add(lblActivationKey);
+            settingsPanel.Controls.Add(cmbFancyZonesActivationKey);
+            settingsPanel.Controls.Add(lblSpacing);
+            settingsPanel.Controls.Add(txtFancyZonesSpacing);
+            settingsPanel.Controls.Add(chkFancyZonesRestoreSize);
+            settingsPanel.Controls.Add(lblExcludedApps);
+            settingsPanel.Controls.Add(txtFancyZonesExcludedApps);
+            settingsPanel.Controls.Add(btnOpenLayoutEditor);
             settingsPanel.Controls.Add(btnApply);
             settingsPanel.Controls.Add(btnCapture);
             this.Controls.Add(settingsPanel);
@@ -305,7 +414,7 @@ namespace ScreenCaptureTool
         private void TxtHotkey_KeyDown(object sender, KeyEventArgs e)
         {
             e.SuppressKeyPress = true;
-            if (e.KeyCode == Keys.Escape) return;
+            if (e.KeyCode == Keys.Escape || IsModifierKey(e.KeyCode)) return;
 
             string hotkeyText = "";
             uint modifiers = 0;
@@ -324,7 +433,7 @@ namespace ScreenCaptureTool
         private void TxtCancelHotkey_KeyDown(object sender, KeyEventArgs e)
         {
             e.SuppressKeyPress = true;
-            if (e.KeyCode == Keys.None) return;
+            if (e.KeyCode == Keys.None || IsModifierKey(e.KeyCode)) return;
 
             string hotkeyText = "";
             uint modifiers = 0;
@@ -343,7 +452,7 @@ namespace ScreenCaptureTool
         private void TxtStampHotkey_KeyDown(object sender, KeyEventArgs e)
         {
             e.SuppressKeyPress = true;
-            if (e.KeyCode == Keys.None) return;
+            if (e.KeyCode == Keys.None || IsModifierKey(e.KeyCode)) return;
 
             string hotkeyText = "";
             uint modifiers = 0;
@@ -359,12 +468,56 @@ namespace ScreenCaptureTool
             txtStampHotkey.Text = hotkeyText;
         }
 
+        private void TxtFancyZonesHotkey_KeyDown(object sender, KeyEventArgs e)
+        {
+            e.SuppressKeyPress = true;
+            if (e.KeyCode == Keys.Escape || IsModifierKey(e.KeyCode))
+            {
+                return;
+            }
+
+            string hotkeyText = "";
+            uint modifiers = 0;
+            if (e.Control) { hotkeyText += "Ctrl + "; modifiers |= 2; }
+            if (e.Alt) { hotkeyText += "Alt + "; modifiers |= 1; }
+            if (e.Shift) { hotkeyText += "Shift + "; modifiers |= 4; }
+            hotkeyText += e.KeyCode.ToString();
+
+            settings.FancyZonesEditorHotkey = hotkeyText;
+            settings.FancyZonesEditorHotkeyModifiers = modifiers;
+            settings.FancyZonesEditorHotkeyCode = (uint)e.KeyCode;
+            txtFancyZonesHotkey.Text = hotkeyText;
+        }
+
+        private static bool IsModifierKey(Keys keyCode)
+        {
+            return keyCode == Keys.ControlKey || keyCode == Keys.ShiftKey || keyCode == Keys.Menu ||
+                   keyCode == Keys.LWin || keyCode == Keys.RWin;
+        }
+
         private void SetupTrayIcon()
         {
             trayMenu = new ContextMenuStrip();
             trayMenu.Items.Add("显示设置", null, (s, e) => this.ShowAndActivate());
             trayMenu.Items.Add("立即截图 (F1)", null, (s, e) => StartCapture(false));
             trayMenu.Items.Add("印章截图 (F2)", null, (s, e) => StartCapture(true));
+            trayMenu.Items.Add("区域布局编辑器", null, (s, e) => OpenLayoutEditor());
+            zonesEnabledMenuItem = new ToolStripMenuItem("启用窗口区域吸附")
+            {
+                CheckOnClick = true,
+                Checked = settings.FancyZonesEnabled
+            };
+            zonesEnabledMenuItem.CheckedChanged += (s, e) =>
+            {
+                settings.FancyZonesEnabled = zonesEnabledMenuItem.Checked;
+                if (chkFancyZonesEnabled != null)
+                {
+                    chkFancyZonesEnabled.Checked = settings.FancyZonesEnabled;
+                }
+                settings.Save();
+                UpdateFancyZonesState();
+            };
+            trayMenu.Items.Add(zonesEnabledMenuItem);
             trayMenu.Items.Add("-");
             trayMenu.Items.Add("退出", null, (s, e) => Application.Exit());
 
@@ -405,6 +558,15 @@ namespace ScreenCaptureTool
             if (!stampSuccess)
             {
                 MessageBox.Show($"无法注册印章热键 {settings.StampHotkey}，可能已被占用。");
+            }
+
+            UnregisterHotKey(this.Handle, FANCY_ZONES_EDITOR_HOTKEY_ID);
+            bool zonesEditorSuccess = RegisterHotKey(this.Handle, FANCY_ZONES_EDITOR_HOTKEY_ID,
+                settings.FancyZonesEditorHotkeyModifiers | MOD_NOREPEAT,
+                settings.FancyZonesEditorHotkeyCode);
+            if (!zonesEditorSuccess)
+            {
+                MessageBox.Show($"无法注册区域编辑器快捷键 {settings.FancyZonesEditorHotkey}，可能已被占用。");
             }
         }
 
@@ -478,11 +640,36 @@ namespace ScreenCaptureTool
             {
                 StartCapture(true);
             }
+            if (m.Msg == 0x0312 && m.WParam.ToInt32() == FANCY_ZONES_EDITOR_HOTKEY_ID)
+            {
+                OpenLayoutEditor();
+            }
             base.WndProc(ref m);
+        }
+
+        private void OpenLayoutEditor()
+        {
+            using (var editor = new LayoutEditorForm(zoneStore, settings))
+            {
+                editor.ShowDialog(this);
+            }
+        }
+
+        private void UpdateFancyZonesState()
+        {
+            if (settings.FancyZonesEnabled)
+            {
+                fancyZonesManager.Start();
+            }
+            else
+            {
+                fancyZonesManager.Stop();
+            }
         }
 
         private void StartCapture(bool stampMode)
         {
+            if (captureInProgress) return;
             captureInProgress = true;
             SyncCancelHotKeyRegistration(true);
             this.Hide();
@@ -518,6 +705,8 @@ namespace ScreenCaptureTool
                 UnregisterHotKey(this.Handle, CANCEL_HOTKEY_ID);
                 cancelHotkeyRegistered = false;
                 UnregisterHotKey(this.Handle, STAMP_HOTKEY_ID);
+                UnregisterHotKey(this.Handle, FANCY_ZONES_EDITOR_HOTKEY_ID);
+                fancyZonesManager?.Dispose();
                 trayIcon.Dispose();
             }
         }
@@ -525,7 +714,7 @@ namespace ScreenCaptureTool
         private void InitializeComponent()
         {
             this.SuspendLayout();
-            this.ClientSize = new System.Drawing.Size(348, 580);
+            this.ClientSize = new System.Drawing.Size(428, 690);
             this.Name = "MainForm";
             this.StartPosition = FormStartPosition.CenterScreen;
             this.ResumeLayout(false);

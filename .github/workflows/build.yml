@@ -2,6 +2,8 @@ name: Build ScreenCaptureTool
 
 on:
   workflow_dispatch: # 支持手动触发
+  push:
+    branches: [ main ]
 
 jobs:
   build:

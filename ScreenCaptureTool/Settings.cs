@@ -31,6 +31,17 @@ namespace ScreenCaptureTool
         public uint StampHotkeyModifiers { get; set; } = 0;
         public uint StampHotkeyCode { get; set; } = 0x71; // F2
 
+        // FancyZones-compatible window zones
+        public bool FancyZonesEnabled { get; set; } = false;
+        public string FancyZonesEditorHotkey { get; set; } = "Ctrl + Alt + Z";
+        public uint FancyZonesEditorHotkeyModifiers { get; set; } = 3; // Ctrl + Alt
+        public uint FancyZonesEditorHotkeyCode { get; set; } = 0x5A; // Z
+        // 0 = Shift, 1 = Ctrl, 2 = Alt
+        public int FancyZonesActivationKey { get; set; } = 0;
+        public int FancyZonesSpacing { get; set; } = 8;
+        public bool FancyZonesRestoreSize { get; set; } = true;
+        public string FancyZonesExcludedApps { get; set; } = "";
+
         private static string FilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
 
         public static Settings Load()
