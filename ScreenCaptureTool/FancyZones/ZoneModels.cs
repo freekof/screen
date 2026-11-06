@@ -19,15 +19,16 @@ namespace ScreenCaptureTool.FancyZones
         public double Y { get; set; }
         public double Width { get; set; }
         public double Height { get; set; }
+        public string TargetApp { get; set; } = "";
 
         public ZoneRect() { }
 
-        public ZoneRect(double x, double y, double width, double height)
+        public ZoneRect(double x, double y, double width, double height, string targetApp = "")
         {
-            X = x; Y = y; Width = width; Height = height;
+            X = x; Y = y; Width = width; Height = height; TargetApp = targetApp ?? "";
         }
 
-        public ZoneRect Clone() => new ZoneRect(X, Y, Width, Height);
+        public ZoneRect Clone() => new ZoneRect(X, Y, Width, Height, TargetApp);
     }
 
     /// <summary>
@@ -47,6 +48,7 @@ namespace ScreenCaptureTool.FancyZones
         public List<List<int>> CellMap { get; set; } = new List<List<int>>();
 
         public List<ZoneRect> CanvasZones { get; set; } = new List<ZoneRect>();
+        public List<string> ZoneApps { get; set; } = new List<string>();
 
         public int ZoneCount
         {
@@ -68,9 +70,64 @@ namespace ScreenCaptureTool.FancyZones
             }
         }
 
+        public string GetZoneApp(int zoneIndex)
+        {
+            if (zoneIndex < 0) return "";
+            if (Kind == LayoutKind.Canvas && zoneIndex < CanvasZones.Count &&
+                !string.IsNullOrWhiteSpace(CanvasZones[zoneIndex].TargetApp))
+            {
+                return CanvasZones[zoneIndex].TargetApp.Trim();
+            }
+            if (zoneIndex < ZoneApps.Count && !string.IsNullOrWhiteSpace(ZoneApps[zoneIndex]))
+            {
+                return ZoneApps[zoneIndex].Trim();
+            }
+            return "";
+        }
+
+        public void SetZoneApp(int zoneIndex, string? appName)
+        {
+            if (zoneIndex < 0) return;
+            string clean = (appName ?? "").Trim();
+            while (ZoneApps.Count <= zoneIndex)
+            {
+                ZoneApps.Add("");
+            }
+            ZoneApps[zoneIndex] = clean;
+            if (Kind == LayoutKind.Canvas && zoneIndex < CanvasZones.Count)
+            {
+                CanvasZones[zoneIndex].TargetApp = clean;
+            }
+        }
+
+        public void SyncZoneAppsCount()
+        {
+            int count = ZoneCount;
+            if (Kind == LayoutKind.Canvas)
+            {
+                for (int i = 0; i < CanvasZones.Count; i++)
+                {
+                    if (string.IsNullOrWhiteSpace(CanvasZones[i].TargetApp) && i < ZoneApps.Count)
+                    {
+                        CanvasZones[i].TargetApp = ZoneApps[i] ?? "";
+                    }
+                }
+                ZoneApps = CanvasZones.Select(z => z.TargetApp ?? "").ToList();
+                return;
+            }
+            while (ZoneApps.Count < count)
+            {
+                ZoneApps.Add("");
+            }
+            if (ZoneApps.Count > count)
+            {
+                ZoneApps.RemoveRange(count, ZoneApps.Count - count);
+            }
+        }
+
         public ZoneLayout Clone()
         {
-            return new ZoneLayout
+            var clone = new ZoneLayout
             {
                 Id = Id,
                 Name = Name,
@@ -78,8 +135,11 @@ namespace ScreenCaptureTool.FancyZones
                 RowPercents = new List<double>(RowPercents),
                 ColumnPercents = new List<double>(ColumnPercents),
                 CellMap = CellMap.Select(r => new List<int>(r)).ToList(),
-                CanvasZones = CanvasZones.Select(z => z.Clone()).ToList()
+                CanvasZones = CanvasZones.Select(z => z.Clone()).ToList(),
+                ZoneApps = new List<string>(ZoneApps)
             };
+            clone.SyncZoneAppsCount();
+            return clone;
         }
 
         /// <summary>返回各区域相对工作区的比例矩形 (0~1)，索引即区域编号。</summary>

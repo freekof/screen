@@ -2,17 +2,47 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
-using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Security.Principal;
 using System.Windows.Forms;
 
 namespace ScreenCaptureTool.FancyZones
 {
+    /// <summary>当前打开的顶层应用窗口信息。</summary>
+    public sealed class AppWindowInfo
+    {
+        public IntPtr Hwnd { get; init; }
+        public uint ProcessId { get; init; }
+        public string ProcessName { get; init; } = "";
+        public string Title { get; init; } = "";
+        public Rectangle Bounds { get; init; }
+
+        public string DisplayText =>
+            string.IsNullOrWhiteSpace(Title)
+                ? $"{ProcessName} [0x{Hwnd:X}]"
+                : $"{Title} ({Bounds.Width}×{Bounds.Height})";
+
+        public override string ToString() => DisplayText;
+    }
+
+    /// <summary>区域程序下拉菜单项。</summary>
+    public sealed class AppProgramItem
+    {
+        public string ProcessName { get; }
+        public string DisplayText { get; }
+
+        public AppProgramItem(string processName, string displayText)
+        {
+            ProcessName = processName;
+            DisplayText = displayText;
+        }
+
+        public override string ToString() => DisplayText;
+    }
+
     /// <summary>
-    /// FancyZones 主管理器：拖动检测 → 区域高亮 → 窗口吸附。
-    /// 在 UI 线程创建、运行。
+    /// FancyZones 主管理器：拖动检测 → 区域高亮 → 窗口吸附，以及一键按布局调整指定程序窗口。
+    /// 仅在区域布局编辑器打开时启动钩子监测，关闭编辑器后立即释放钩子，避免后台占用系统资源。
     /// </summary>
     public sealed class FancyZonesManager : IDisposable
     {
@@ -20,7 +50,7 @@ namespace ScreenCaptureTool.FancyZones
         private readonly ZoneStore store;
         private ZoneOverlayForm? overlay;
 
-        // WinEvent 钩子（必须保持引用以防 GC）
+        // WinEvent 钩子与鼠标钩子（必须保持委托引用以防 GC）
         private NativeMethods.WinEventDelegate? winEventProc;
         private IntPtr hookStart;
         private IntPtr hookEnd;
@@ -37,24 +67,21 @@ namespace ScreenCaptureTool.FancyZones
         private bool resizeDetected;
         private bool rightButtonDown;
         private bool suppressRightButtonRelease;
+        private long lastChordActiveTick;
+        private readonly HashSet<int> lastActiveHighlight = new HashSet<int>();
         private int anchorZone = -1; // Ctrl 多选锚点
-        private int lastLoggedHitZone = -2;
         private Screen? overlayScreen;
         private System.Windows.Forms.Timer? pollTimer;
 
-        // 自定义拖动（如雷电模拟器等自绘无边框窗口或高权限窗口）候选检测
-        private bool wasLeftButtonDown;
-        private IntPtr candidateHwnd;
-        private Rectangle candidateStartRect;
-        private bool candidateLogged;
+        private const int ChordReleaseGraceMs = 300;
 
         // 吸附记忆
         private readonly Dictionary<IntPtr, Rectangle> originalSizes = new Dictionary<IntPtr, Rectangle>();
         private readonly uint currentPid;
         private bool isDisposed;
+        private bool isSuspended;
 
-        private static string DebugLogPath =>
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fancyzones_debug.log");
+        public uint CurrentProcessId => currentPid;
 
         public FancyZonesManager(Settings settings, ZoneStore store)
         {
@@ -66,11 +93,12 @@ namespace ScreenCaptureTool.FancyZones
             }
         }
 
-        // ── 启动 / 停止 ──
+        // ── 启动 / 停止（仅在区域布局编辑器打开期间启用） ──
 
         public void Start()
         {
             if (isDisposed || hookStart != IntPtr.Zero) return;
+            isSuspended = false;
 
             winEventProc = OnWinEvent;
             hookStart = NativeMethods.SetWinEventHook(
@@ -89,15 +117,6 @@ namespace ScreenCaptureTool.FancyZones
             mouseHook = NativeMethods.SetWindowsHookEx(
                 NativeMethods.WH_MOUSE_LL, mouseHookProc,
                 NativeMethods.GetModuleHandle(null), 0);
-            if (mouseHook == IntPtr.Zero)
-            {
-                int err = Marshal.GetLastWin32Error();
-                Debug.WriteLine($"Unable to install the FancyZones right-button hook (Win32 error {err}).");
-                WriteDebugLog($"[WARN] WH_MOUSE_LL install failed, Win32Error={err}");
-            }
-
-            StartPolling();
-            WriteDebugLog($"[START] FancyZones started. PID={currentPid}, IsAdmin={IsRunningAsAdmin()}, hookStart=0x{hookStart:X}, hookEnd=0x{hookEnd:X}, mouseHook=0x{mouseHook:X}");
         }
 
         public void Stop()
@@ -105,16 +124,28 @@ namespace ScreenCaptureTool.FancyZones
             StopPolling();
             dragActive = false;
             isCustomDrag = false;
-            candidateHwnd = IntPtr.Zero;
-            wasLeftButtonDown = false;
+            lastActiveHighlight.Clear();
             HideOverlay();
             if (hookStart != IntPtr.Zero) { NativeMethods.UnhookWinEvent(hookStart); hookStart = IntPtr.Zero; }
             if (hookEnd != IntPtr.Zero) { NativeMethods.UnhookWinEvent(hookEnd); hookEnd = IntPtr.Zero; }
             if (mouseHook != IntPtr.Zero) { NativeMethods.UnhookWindowsHookEx(mouseHook); mouseHook = IntPtr.Zero; }
             mouseHookProc = null;
+            winEventProc = null;
             rightButtonDown = false;
             suppressRightButtonRelease = false;
-            WriteDebugLog("[STOP] FancyZones stopped.");
+        }
+
+        public void SetSuspended(bool suspended)
+        {
+            isSuspended = suspended;
+            if (suspended)
+            {
+                StopPolling();
+                dragActive = false;
+                isCustomDrag = false;
+                lastActiveHighlight.Clear();
+                HideOverlay();
+            }
         }
 
         public void Dispose()
@@ -132,7 +163,6 @@ namespace ScreenCaptureTool.FancyZones
                 }
                 catch
                 {
-                    // Ignore disposal errors during application shutdown.
                 }
             }
         }
@@ -142,7 +172,7 @@ namespace ScreenCaptureTool.FancyZones
         private void OnWinEvent(IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
             int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
         {
-            if (idObject != 0 || hwnd == IntPtr.Zero) return;
+            if (isSuspended || idObject != 0 || hwnd == IntPtr.Zero) return;
 
             if (eventType == NativeMethods.EVENT_SYSTEM_MOVESIZESTART)
             {
@@ -150,22 +180,29 @@ namespace ScreenCaptureTool.FancyZones
             }
             else if (eventType == NativeMethods.EVENT_SYSTEM_MOVESIZEEND)
             {
-                OnMoveSizeEnd(hwnd, "EVENT_SYSTEM_MOVESIZEEND");
+                OnMoveSizeEnd(hwnd);
             }
         }
 
         private IntPtr OnLowLevelMouseEvent(int nCode, IntPtr wParam, IntPtr lParam)
         {
-            if (nCode >= NativeMethods.HC_ACTION)
+            if (!isSuspended && nCode >= NativeMethods.HC_ACTION)
             {
                 int message = wParam.ToInt32();
                 if (message == NativeMethods.WM_RBUTTONDOWN || message == NativeMethods.WM_RBUTTONDBLCLK)
                 {
                     rightButtonDown = true;
+
+                    // 支持雷电模拟器等不触发 EVENT_SYSTEM_MOVESIZESTART 的自绘窗口：
+                    // 当左键按住拖动窗口期间按下右键，立即接管为自定义拖动并吞掉右键消息。
+                    if (!dragActive && NativeMethods.IsKeyDown(NativeMethods.VK_LBUTTON))
+                    {
+                        TryStartCustomDragFromForeground();
+                    }
+
                     if (dragActive)
                     {
                         suppressRightButtonRelease = true;
-                        WriteDebugLog($"[MOUSE_HOOK] Swallowed RBUTTONDOWN during active drag, hwnd=0x{dragHwnd:X}");
                         return new IntPtr(1);
                     }
                 }
@@ -176,8 +213,19 @@ namespace ScreenCaptureTool.FancyZones
                     suppressRightButtonRelease = false;
                     if (suppress)
                     {
-                        WriteDebugLog($"[MOUSE_HOOK] Swallowed RBUTTONUP during active drag, hwnd=0x{dragHwnd:X}");
                         return new IntPtr(1);
+                    }
+                }
+                else if (message == NativeMethods.WM_LBUTTONDOWN)
+                {
+                    // 若存在曾被吸附过的自绘窗口，按下左键时检查是否为该窗口以便拖出时恢复原尺寸
+                    if (!dragActive && originalSizes.Count > 0 && settings.FancyZonesRestoreSize)
+                    {
+                        IntPtr fg = GetForegroundRootWindow();
+                        if (fg != IntPtr.Zero && originalSizes.ContainsKey(fg))
+                        {
+                            TryStartCustomDrag(fg);
+                        }
                     }
                 }
             }
@@ -185,21 +233,44 @@ namespace ScreenCaptureTool.FancyZones
             return NativeMethods.CallNextHookEx(mouseHook, nCode, wParam, lParam);
         }
 
+        private static IntPtr GetForegroundRootWindow()
+        {
+            IntPtr fg = NativeMethods.GetForegroundWindow();
+            if (fg == IntPtr.Zero) return IntPtr.Zero;
+            IntPtr root = NativeMethods.GetAncestor(fg, NativeMethods.GA_ROOT);
+            return root != IntPtr.Zero ? root : fg;
+        }
+
+        private void TryStartCustomDragFromForeground()
+        {
+            IntPtr hwnd = GetForegroundRootWindow();
+            if (hwnd == IntPtr.Zero) return;
+            TryStartCustomDrag(hwnd);
+        }
+
+        private void TryStartCustomDrag(IntPtr hwnd)
+        {
+            if (!IsEligibleWindow(hwnd)) return;
+            if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT wr)) return;
+
+            Rectangle currentRect = wr.ToRectangle();
+            if (settings.FancyZonesRestoreSize && originalSizes.TryGetValue(hwnd, out Rectangle originalSize))
+            {
+                currentRect = RestoreWindowUnderCursor(hwnd, currentRect, originalSize);
+            }
+
+            BeginDragTracking(hwnd, currentRect, customDrag: true);
+        }
+
         private void OnMoveSizeStart(IntPtr hwnd)
         {
-            if (!settings.FancyZonesEnabled) return;
-
             IntPtr rootHwnd = NativeMethods.GetAncestor(hwnd, NativeMethods.GA_ROOT);
             if (rootHwnd != IntPtr.Zero)
             {
                 hwnd = rootHwnd;
             }
 
-            if (!IsEligibleWindow(hwnd, out string rejectReason))
-            {
-                WriteDebugLog($"[MOVESIZESTART_REJECT] {DescribeWindow(hwnd)} Reason={rejectReason}");
-                return;
-            }
+            if (!IsEligibleWindow(hwnd)) return;
 
             // 判断是 Move 还是 Resize（使用 WM_NCHITTEST）
             NativeMethods.GetCursorPos(out NativeMethods.POINT pt);
@@ -207,38 +278,42 @@ namespace ScreenCaptureTool.FancyZones
             NativeMethods.SendMessageTimeout(hwnd, NativeMethods.WM_NCHITTEST,
                 IntPtr.Zero, lParam, NativeMethods.SMTO_ABORTIFHUNG, 100, out IntPtr result);
             int ht = result.ToInt32();
-            if (NativeMethods.IsSizeHitTest(ht))
-            {
-                WriteDebugLog($"[MOVESIZESTART_RESIZE_SKIP] {DescribeWindow(hwnd)} hitTest={ht}");
-                return;
-            }
+            if (NativeMethods.IsSizeHitTest(ht)) return;
 
             rightButtonDown = NativeMethods.IsKeyDown(NativeMethods.VK_RBUTTON);
 
-            NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT wr);
+            if (!NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT wr)) return;
             Rectangle currentRect = wr.ToRectangle();
             if (settings.FancyZonesRestoreSize && originalSizes.TryGetValue(hwnd, out Rectangle originalSize))
             {
-                NativeMethods.GetCursorPos(out NativeMethods.POINT cursor);
-                double relativeX = currentRect.Width > 0
-                    ? Math.Clamp((cursor.X - currentRect.Left) / (double)currentRect.Width, 0.0, 1.0)
-                    : 0.5;
-                double relativeY = currentRect.Height > 0
-                    ? Math.Clamp((cursor.Y - currentRect.Top) / (double)currentRect.Height, 0.0, 1.0)
-                    : 0.5;
-                int restoredX = cursor.X - (int)Math.Round(relativeX * originalSize.Width);
-                int restoredY = cursor.Y - (int)Math.Round(relativeY * originalSize.Height);
-                NativeMethods.SetWindowPos(hwnd, IntPtr.Zero,
-                    restoredX, restoredY, originalSize.Width, originalSize.Height,
-                    NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
-                NativeMethods.GetWindowRect(hwnd, out wr);
-                currentRect = wr.ToRectangle();
+                currentRect = RestoreWindowUnderCursor(hwnd, currentRect, originalSize);
             }
 
-            BeginDragTracking(hwnd, currentRect, customDrag: false, hitTest: ht);
+            BeginDragTracking(hwnd, currentRect, customDrag: false);
         }
 
-        private void BeginDragTracking(IntPtr hwnd, Rectangle startRect, bool customDrag, int hitTest = 0)
+        private static Rectangle RestoreWindowUnderCursor(IntPtr hwnd, Rectangle currentRect, Rectangle originalSize)
+        {
+            NativeMethods.GetCursorPos(out NativeMethods.POINT cursor);
+            double relativeX = currentRect.Width > 0
+                ? Math.Clamp((cursor.X - currentRect.Left) / (double)currentRect.Width, 0.0, 1.0)
+                : 0.5;
+            double relativeY = currentRect.Height > 0
+                ? Math.Clamp((cursor.Y - currentRect.Top) / (double)currentRect.Height, 0.0, 1.0)
+                : 0.5;
+            int restoredX = cursor.X - (int)Math.Round(relativeX * originalSize.Width);
+            int restoredY = cursor.Y - (int)Math.Round(relativeY * originalSize.Height);
+            NativeMethods.SetWindowPos(hwnd, IntPtr.Zero,
+                restoredX, restoredY, originalSize.Width, originalSize.Height,
+                NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
+            if (NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT wr))
+            {
+                return wr.ToRectangle();
+            }
+            return new Rectangle(restoredX, restoredY, originalSize.Width, originalSize.Height);
+        }
+
+        private void BeginDragTracking(IntPtr hwnd, Rectangle startRect, bool customDrag)
         {
             dragHwnd = hwnd;
             dragStartRect = startRect;
@@ -247,59 +322,55 @@ namespace ScreenCaptureTool.FancyZones
             startWasMaximized = NativeMethods.IsZoomed(hwnd);
             resizeDetected = false;
             anchorZone = -1;
-            lastLoggedHitZone = -2;
+            lastChordActiveTick = 0;
+            lastActiveHighlight.Clear();
             overlayShowing = false;
             overlayScreen = null;
 
-            string mode = customDrag ? "CUSTOM_DRAG_START" : "MOVESIZESTART";
-            WriteDebugLog($"[{mode}] {DescribeWindow(hwnd)} startRect={startRect} hitTest={hitTest}");
+            StartPolling();
         }
 
-        private void OnMoveSizeEnd(IntPtr hwnd, string source)
+        private void OnMoveSizeEnd(IntPtr hwnd)
         {
             if (!dragActive || hwnd != dragHwnd) return;
             bool wasOverlayShowing = overlayShowing;
             bool wasResizeDetected = resizeDetected;
+            long elapsedSinceChord = Environment.TickCount64 - lastChordActiveTick;
+            bool chordRecentlyActive = IsActivationChordDown() ||
+                                       (lastChordActiveTick > 0 && elapsedSinceChord <= ChordReleaseGraceMs);
+
             dragActive = false;
             isCustomDrag = false;
-            candidateHwnd = IntPtr.Zero;
+            StopPolling();
 
             try
             {
                 if (wasResizeDetected)
                 {
-                    WriteDebugLog($"[DRAG_END_RESIZE] source={source} hwnd=0x{hwnd:X}");
                     HideOverlay();
                     return;
                 }
 
-                if (!wasOverlayShowing)
+                if (!wasOverlayShowing || !chordRecentlyActive)
                 {
-                    WriteDebugLog($"[DRAG_END_NO_OVERLAY] source={source} hwnd=0x{hwnd:X}");
                     HideOverlay();
                     RestoreOriginalSize(hwnd);
                     return;
                 }
 
-                if (!IsActivationChordDown())
-                {
-                    WriteDebugLog($"[DRAG_END_CHORD_RELEASED] source={source} hwnd=0x{hwnd:X}");
-                    HideOverlay();
-                    RestoreOriginalSize(hwnd);
-                    return;
-                }
-
-                // 获取选中的区域
                 var selected = GetCurrentHighlight();
+                if (selected.Count == 0 && lastActiveHighlight.Count > 0 && elapsedSinceChord <= ChordReleaseGraceMs)
+                {
+                    selected = new HashSet<int>(lastActiveHighlight);
+                }
+
                 if (selected.Count == 0)
                 {
-                    WriteDebugLog($"[DRAG_END_OUTSIDE_ZONE] source={source} hwnd=0x{hwnd:X}");
                     HideOverlay();
                     RestoreOriginalSize(hwnd);
                     return;
                 }
 
-                // 计算合并区域
                 ZoneLayout? layout = store.ActiveLayout;
                 if (layout == null) { HideOverlay(); return; }
 
@@ -318,16 +389,16 @@ namespace ScreenCaptureTool.FancyZones
 
                 if (target.IsEmpty) return;
 
-                WriteDebugLog($"[DRAG_END_SNAP] source={source} hwnd=0x{hwnd:X} zones=[{string.Join(",", selected)}] target={target}");
                 SnapWindow(hwnd, target);
             }
             finally
             {
+                lastActiveHighlight.Clear();
                 HideOverlay();
             }
         }
 
-        // ── 轮询 ──
+        // ── 轮询（仅在活动拖动期间运行，闲置时停止） ──
 
         private void StartPolling()
         {
@@ -348,104 +419,33 @@ namespace ScreenCaptureTool.FancyZones
 
         private void PollTick(object? sender, EventArgs e)
         {
-            if (!settings.FancyZonesEnabled)
+            if (!dragActive || dragHwnd == IntPtr.Zero || isSuspended)
             {
-                if (overlayShowing) HideOverlay();
-                return;
-            }
-
-            bool leftDown = NativeMethods.IsKeyDown(NativeMethods.VK_LBUTTON);
-
-            // 1. 检测自绘窗口（如雷电模拟器等不触发 EVENT_SYSTEM_MOVESIZESTART 的窗口）或高权限窗口拖动
-            if (leftDown && !wasLeftButtonDown)
-            {
-                wasLeftButtonDown = true;
-                if (!dragActive)
-                {
-                    IntPtr fg = NativeMethods.GetForegroundWindow();
-                    if (fg != IntPtr.Zero)
-                    {
-                        IntPtr root = NativeMethods.GetAncestor(fg, NativeMethods.GA_ROOT);
-                        if (root != IntPtr.Zero) fg = root;
-                    }
-                    if (fg != IntPtr.Zero && NativeMethods.GetWindowRect(fg, out NativeMethods.RECT r))
-                    {
-                        candidateHwnd = fg;
-                        candidateStartRect = r.ToRectangle();
-                        candidateLogged = false;
-                    }
-                }
-            }
-            else if (!leftDown && wasLeftButtonDown)
-            {
-                wasLeftButtonDown = false;
-                candidateHwnd = IntPtr.Zero;
-                candidateLogged = false;
-                if (dragActive)
-                {
-                    // 左键已松开：无论是自定义拖动还是系统拖动未及时收到 MOVESIZEEND，立即完成吸附
-                    OnMoveSizeEnd(dragHwnd, isCustomDrag ? "LBUTTONUP_CUSTOM" : "LBUTTONUP_FALLBACK");
-                    return;
-                }
-            }
-
-            if (!dragActive && leftDown && candidateHwnd != IntPtr.Zero && NativeMethods.IsWindow(candidateHwnd))
-            {
-                if (NativeMethods.GetWindowRect(candidateHwnd, out NativeMethods.RECT curR))
-                {
-                    Rectangle cur = curR.ToRectangle();
-                    bool moved = Math.Abs(cur.Left - candidateStartRect.Left) >= 3 ||
-                                 Math.Abs(cur.Top - candidateStartRect.Top) >= 3;
-                    bool sameSize = Math.Abs(cur.Width - candidateStartRect.Width) <= 10 &&
-                                    Math.Abs(cur.Height - candidateStartRect.Height) <= 10;
-
-                    if (moved && sameSize)
-                    {
-                        if (IsEligibleWindow(candidateHwnd, out string reason))
-                        {
-                            BeginDragTracking(candidateHwnd, candidateStartRect, customDrag: true);
-                        }
-                        else if (!candidateLogged)
-                        {
-                            candidateLogged = true;
-                            WriteDebugLog($"[CUSTOM_DRAG_REJECT] {DescribeWindow(candidateHwnd)} Reason={reason}");
-                        }
-                    }
-                    else if (!candidateLogged && IsActivationChordDown())
-                    {
-                        candidateLogged = true;
-                        bool eligible = IsEligibleWindow(candidateHwnd, out string reason);
-                        WriteDebugLog($"[CHORD_WITHOUT_MOVESIZESTART] {DescribeWindow(candidateHwnd)} moved={moved} sameSize={sameSize} eligible={eligible} reason={reason}");
-                        if (eligible && sameSize)
-                        {
-                            BeginDragTracking(candidateHwnd, candidateStartRect, customDrag: true);
-                        }
-                    }
-                }
-            }
-
-            if (!dragActive || dragHwnd == IntPtr.Zero)
-            {
-                if (overlayShowing) HideOverlay();
-                return;
-            }
-
-            // 检查窗口是否仍在
-            if (!NativeMethods.IsWindow(dragHwnd))
-            {
-                dragActive = false;
-                isCustomDrag = false;
+                StopPolling();
                 HideOverlay();
                 return;
             }
 
-            // 如果窗口尺寸变了（真正 Resize，不是 Move），取消
+            if (!NativeMethods.IsWindow(dragHwnd))
+            {
+                dragActive = false;
+                isCustomDrag = false;
+                StopPolling();
+                HideOverlay();
+                return;
+            }
+
+            // 左键松开时结束拖动并执行吸附
+            if (!NativeMethods.IsKeyDown(NativeMethods.VK_LBUTTON))
+            {
+                OnMoveSizeEnd(dragHwnd);
+                return;
+            }
+
             NativeMethods.GetWindowRect(dragHwnd, out NativeMethods.RECT nowRect);
             Rectangle now = nowRect.ToRectangle();
             bool sizeChanged = Math.Abs(now.Width - dragStartRect.Width) > 12 ||
                                Math.Abs(now.Height - dragStartRect.Height) > 12;
-            // Windows begins a move from a maximized window by restoring it; treat that one
-            // expected size transition as the new baseline, while rejecting real resize drags.
             if (sizeChanged && startWasMaximized && !NativeMethods.IsZoomed(dragHwnd))
             {
                 dragStartRect = now;
@@ -454,7 +454,6 @@ namespace ScreenCaptureTool.FancyZones
             else if (sizeChanged && !overlayShowing)
             {
                 resizeDetected = true;
-                WriteDebugLog($"[RESIZE_DETECTED] {DescribeWindow(dragHwnd)} startRect={dragStartRect} nowRect={now}");
                 HideOverlay();
                 return;
             }
@@ -463,19 +462,29 @@ namespace ScreenCaptureTool.FancyZones
             bool activatorDown = IsActivationChordDown();
             if (!activatorDown)
             {
+                // 给同时松开左右键留出 300ms 宽限期，防止右键比左键早松开几十毫秒导致取消
+                if (overlayShowing && lastChordActiveTick > 0 &&
+                    Environment.TickCount64 - lastChordActiveTick <= ChordReleaseGraceMs)
+                {
+                    return;
+                }
+
                 if (overlayShowing) HideOverlay();
                 overlayShowing = false;
                 anchorZone = -1;
-                lastLoggedHitZone = -2;
+                lastActiveHighlight.Clear();
                 return;
             }
+
+            lastChordActiveTick = Environment.TickCount64;
 
             // ESC 取消
             if (NativeMethods.IsKeyDown(NativeMethods.VK_ESCAPE))
             {
-                WriteDebugLog($"[DRAG_ESC_CANCEL] hwnd=0x{dragHwnd:X}");
                 dragActive = false;
                 isCustomDrag = false;
+                lastActiveHighlight.Clear();
+                StopPolling();
                 HideOverlay();
                 return;
             }
@@ -483,7 +492,6 @@ namespace ScreenCaptureTool.FancyZones
             NativeMethods.GetCursorPos(out NativeMethods.POINT cursor);
             Point cursorPt = new Point(cursor.X, cursor.Y);
 
-            // 确定光标所在的显示器
             Screen curScreen = Screen.FromPoint(cursorPt);
             ZoneLayout? layout = store.ActiveLayout;
             if (layout == null)
@@ -494,7 +502,6 @@ namespace ScreenCaptureTool.FancyZones
 
             var zones = layout.GetZoneRects(curScreen.WorkingArea, settings.FancyZonesSpacing);
 
-            // 找光标命中的区域（选面积最小的）
             int hitZone = -1;
             int hitArea = int.MaxValue;
             for (int i = 0; i < zones.Count; i++)
@@ -506,13 +513,6 @@ namespace ScreenCaptureTool.FancyZones
                 }
             }
 
-            if (hitZone != lastLoggedHitZone)
-            {
-                lastLoggedHitZone = hitZone;
-                WriteDebugLog($"[ZONE_HOVER] hwnd=0x{dragHwnd:X} cursor={cursorPt} screen={curScreen.DeviceName} hitZone={hitZone}");
-            }
-
-            // 多区域选择（Ctrl 键）
             bool ctrlDown = IsMultiSelectDown();
             var hlSet = new HashSet<int>();
 
@@ -534,7 +534,9 @@ namespace ScreenCaptureTool.FancyZones
                 if (hitZone >= 0) hlSet.Add(hitZone);
             }
 
-            // 显示/更新覆盖层
+            lastActiveHighlight.Clear();
+            foreach (int z in hlSet) lastActiveHighlight.Add(z);
+
             EnsureOverlay();
             if (overlayScreen == null || overlayScreen.DeviceName != curScreen.DeviceName)
             {
@@ -586,9 +588,9 @@ namespace ScreenCaptureTool.FancyZones
             return hlSet;
         }
 
-        // ── 吸附 ──
+        // ── 吸附与一键调整窗口 ──
 
-        private void SnapWindow(IntPtr hwnd, Rectangle target)
+        public void SnapWindow(IntPtr hwnd, Rectangle target)
         {
             if (!NativeMethods.IsWindow(hwnd)) return;
 
@@ -597,13 +599,11 @@ namespace ScreenCaptureTool.FancyZones
                 originalSizes[hwnd] = originalRect.ToRectangle();
             }
 
-            // 还原最大化/最小化
             if (NativeMethods.IsZoomed(hwnd) || NativeMethods.IsIconic(hwnd))
             {
                 NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
             }
 
-            // 不可见边框补偿
             NativeMethods.GetInvisibleBorders(hwnd, out int bLeft, out int bTop, out int bRight, out int bBottom);
             Rectangle adjusted = new Rectangle(
                 target.X - bLeft,
@@ -611,20 +611,298 @@ namespace ScreenCaptureTool.FancyZones
                 target.Width + bLeft + bRight,
                 target.Height + bTop + bBottom);
 
-            // 设置两次以应对跨 DPI 显示器的 WM_DPICHANGED 干扰
             uint flags = NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE;
-            bool ok1 = NativeMethods.SetWindowPos(hwnd, IntPtr.Zero,
+            NativeMethods.SetWindowPos(hwnd, IntPtr.Zero,
                 adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, flags);
-            int err1 = ok1 ? 0 : Marshal.GetLastWin32Error();
-            bool ok2 = NativeMethods.SetWindowPos(hwnd, IntPtr.Zero,
+            NativeMethods.SetWindowPos(hwnd, IntPtr.Zero,
                 adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, flags);
-            int err2 = ok2 ? 0 : Marshal.GetLastWin32Error();
+        }
 
-            NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT afterRect);
-            string adminHint = (!ok1 || !ok2) && (err1 == 5 || err2 == 5)
-                ? " [ERROR_ACCESS_DENIED(5): 目标窗口以管理员权限运行，请以管理员身份运行抓屏软件]"
-                : "";
-            WriteDebugLog($"[SNAP_RESULT] {DescribeWindow(hwnd)} target={target} adjusted={adjusted} ok1={ok1}(err={err1}) ok2={ok2}(err={err2}) afterRect={afterRect.ToRectangle()}{adminHint}");
+        /// <summary>
+        /// 按给定布局（或当前活动布局）将各区域指定的程序窗口一键移动到对应区域位置和大小。
+        /// 如果某个指定程序存在多个窗口，则弹出下拉菜单供用户选择。
+        /// </summary>
+        public void ApplyLayoutWindows(ZoneLayout? layout = null, Screen? targetScreen = null, IWin32Window? owner = null)
+        {
+            layout ??= store.ActiveLayout;
+            if (layout == null) return;
+
+            Screen screen = targetScreen ?? Screen.FromPoint(Cursor.Position);
+            List<Rectangle> zoneRects = layout.GetZoneRects(screen.WorkingArea, settings.FancyZonesSpacing);
+            if (zoneRects.Count == 0) return;
+
+            var zoneBindings = new List<(int ZoneIndex, Rectangle ZoneRect, string AppName)>();
+            for (int i = 0; i < zoneRects.Count; i++)
+            {
+                string app = layout.GetZoneApp(i);
+                if (!string.IsNullOrWhiteSpace(app))
+                {
+                    zoneBindings.Add((i, zoneRects[i], app));
+                }
+            }
+
+            if (zoneBindings.Count == 0)
+            {
+                MessageBox.Show(owner,
+                    "当前布局尚未为任何区域指定程序。\n请先在区域布局编辑器的区域尺寸后下拉菜单中选择程序。",
+                    "一键调整窗口", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            List<AppWindowInfo> openWindows = GetOpenAppWindows(currentPid);
+            var candidatesPerZone = new List<(int ZoneIndex, Rectangle ZoneRect, string AppName, List<AppWindowInfo> Windows)>();
+            bool needSelectionDialog = false;
+
+            // 统计同一个程序被多少个区域绑定
+            var appZoneCounts = zoneBindings
+                .GroupBy(b => b.AppName, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var binding in zoneBindings)
+            {
+                var matches = openWindows
+                    .Where(w => w.ProcessName.Equals(binding.AppName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (matches.Count > 1)
+                {
+                    needSelectionDialog = true;
+                }
+                candidatesPerZone.Add((binding.ZoneIndex, binding.ZoneRect, binding.AppName, matches));
+            }
+
+            if (candidatesPerZone.All(c => c.Windows.Count == 0))
+            {
+                MessageBox.Show(owner,
+                    "未找到已指定程序的运行窗口，请确认目标程序已打开。",
+                    "一键调整窗口", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (!needSelectionDialog)
+            {
+                foreach (var item in candidatesPerZone)
+                {
+                    if (item.Windows.Count == 1)
+                    {
+                        SnapWindow(item.Windows[0].Hwnd, item.ZoneRect);
+                    }
+                }
+                return;
+            }
+
+            // 存在一个程序有多个窗口：弹出下拉菜单选择窗口
+            using (var dlg = new Form())
+            {
+                dlg.Text = $"选择要调整的窗口 - {layout.Name}";
+                dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dlg.MaximizeBox = false;
+                dlg.MinimizeBox = false;
+                dlg.StartPosition = FormStartPosition.CenterScreen;
+                dlg.TopMost = true;
+                dlg.AutoScaleDimensions = new SizeF(96F, 96F);
+                dlg.AutoScaleMode = AutoScaleMode.Dpi;
+
+                var panel = new Panel
+                {
+                    Location = new Point(12, 12),
+                    Size = new Size(496, 260),
+                    AutoScroll = true
+                };
+
+                var combos = new List<(Rectangle ZoneRect, ComboBox Combo)>();
+                var usedCountByApp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                int y = 6;
+
+                foreach (var item in candidatesPerZone)
+                {
+                    var lbl = new Label
+                    {
+                        Text = $"区域 {item.ZoneIndex + 1} ({item.ZoneRect.Width} × {item.ZoneRect.Height}) - {item.AppName}:",
+                        Location = new Point(4, y + 4),
+                        Size = new Size(220, 22)
+                    };
+
+                    var cmb = new ComboBox
+                    {
+                        Location = new Point(230, y),
+                        Size = new Size(245, 24),
+                        DropDownStyle = ComboBoxStyle.DropDownList
+                    };
+
+                    if (item.Windows.Count == 0)
+                    {
+                        cmb.Items.Add(new AppWindowInfo { Hwnd = IntPtr.Zero, ProcessName = item.AppName, Title = "(程序未运行)" });
+                        cmb.SelectedIndex = 0;
+                        cmb.Enabled = false;
+                    }
+                    else
+                    {
+                        foreach (var w in item.Windows)
+                        {
+                            cmb.Items.Add(w);
+                        }
+                        cmb.Items.Add(new AppWindowInfo { Hwnd = IntPtr.Zero, ProcessName = item.AppName, Title = "(不调整此区域)" });
+
+                        usedCountByApp.TryGetValue(item.AppName, out int usedIdx);
+                        cmb.SelectedIndex = Math.Min(usedIdx, item.Windows.Count - 1);
+                        usedCountByApp[item.AppName] = usedIdx + 1;
+                    }
+
+                    panel.Controls.Add(lbl);
+                    panel.Controls.Add(cmb);
+                    combos.Add((item.ZoneRect, cmb));
+                    y += 34;
+                }
+
+                int panelH = Math.Clamp(y + 8, 80, 300);
+                panel.Size = new Size(496, panelH);
+
+                var btnOk = new Button
+                {
+                    Text = "确定调整",
+                    DialogResult = DialogResult.OK,
+                    Location = new Point(310, panelH + 22),
+                    Size = new Size(92, 32),
+                    BackColor = Color.LightSkyBlue
+                };
+                var btnCancel = new Button
+                {
+                    Text = "取消",
+                    DialogResult = DialogResult.Cancel,
+                    Location = new Point(412, panelH + 22),
+                    Size = new Size(88, 32)
+                };
+
+                dlg.ClientSize = new Size(520, panelH + 66);
+                dlg.Controls.AddRange(new Control[] { panel, btnOk, btnCancel });
+                dlg.AcceptButton = btnOk;
+                dlg.CancelButton = btnCancel;
+
+                if (dlg.ShowDialog(owner) == DialogResult.OK)
+                {
+                    foreach (var (zoneRect, combo) in combos)
+                    {
+                        if (combo.SelectedItem is AppWindowInfo win && win.Hwnd != IntPtr.Zero)
+                        {
+                            SnapWindow(win.Hwnd, zoneRect);
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 枚举运行中的程序与窗口 ──
+
+        public static List<AppWindowInfo> GetOpenAppWindows(uint excludePid = 0)
+        {
+            if (excludePid == 0)
+            {
+                using var self = Process.GetCurrentProcess();
+                excludePid = (uint)self.Id;
+            }
+
+            var list = new List<AppWindowInfo>();
+            NativeMethods.EnumWindows((hWnd, lParam) =>
+            {
+                if (!NativeMethods.IsWindow(hWnd) || !NativeMethods.IsWindowVisible(hWnd))
+                    return true;
+
+                IntPtr root = NativeMethods.GetAncestor(hWnd, NativeMethods.GA_ROOT);
+                if (root != IntPtr.Zero && root != hWnd)
+                    return true;
+
+                int style = NativeMethods.GetWindowLong(hWnd, NativeMethods.GWL_STYLE);
+                int exStyle = NativeMethods.GetWindowLong(hWnd, NativeMethods.GWL_EXSTYLE);
+                if ((style & NativeMethods.WS_CHILD) != 0 || (style & NativeMethods.WS_DISABLED) != 0)
+                    return true;
+                if ((exStyle & NativeMethods.WS_EX_TOOLWINDOW) != 0 || (exStyle & NativeMethods.WS_EX_NOACTIVATE) != 0)
+                    return true;
+
+                string title = NativeMethods.GetWindowTitle(hWnd).Trim();
+                if (string.IsNullOrEmpty(title))
+                    return true;
+
+                string cls = NativeMethods.GetWindowClass(hWnd);
+                if (cls.Equals("Progman", StringComparison.OrdinalIgnoreCase) ||
+                    cls.Equals("WorkerW", StringComparison.OrdinalIgnoreCase) ||
+                    cls.Equals("Shell_TrayWnd", StringComparison.OrdinalIgnoreCase) ||
+                    cls.Equals("SecondaryTrayWnd", StringComparison.OrdinalIgnoreCase) ||
+                    cls.Equals("Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                NativeMethods.GetWindowThreadProcessId(hWnd, out uint pid);
+                if (pid == 0 || pid == excludePid)
+                    return true;
+
+                string procName = "";
+                try
+                {
+                    using var proc = Process.GetProcessById((int)pid);
+                    procName = proc.ProcessName;
+                }
+                catch
+                {
+                    return true;
+                }
+
+                if (string.IsNullOrWhiteSpace(procName) ||
+                    procName.Equals("ApplicationFrameHost", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(title))
+                {
+                    return true;
+                }
+
+                NativeMethods.GetWindowRect(hWnd, out NativeMethods.RECT wr);
+                list.Add(new AppWindowInfo
+                {
+                    Hwnd = hWnd,
+                    ProcessId = pid,
+                    ProcessName = procName,
+                    Title = title,
+                    Bounds = wr.ToRectangle()
+                });
+                return true;
+            }, IntPtr.Zero);
+
+            return list;
+        }
+
+        public static List<AppProgramItem> GetRunningProgramOptions(string? currentSelectedApp = null)
+        {
+            string selected = (currentSelectedApp ?? "").Trim();
+            var options = new List<AppProgramItem>
+            {
+                new AppProgramItem("", "(未指定)")
+            };
+
+            var groups = GetOpenAppWindows()
+                .GroupBy(w => w.ProcessName, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            bool foundSelected = string.IsNullOrEmpty(selected);
+            foreach (var g in groups)
+            {
+                int count = g.Count();
+                string firstTitle = g.First().Title;
+                if (firstTitle.Length > 14) firstTitle = firstTitle.Substring(0, 14) + "…";
+                string label = count == 1
+                    ? $"{g.Key} ({firstTitle})"
+                    : $"{g.Key} ({count}个窗口)";
+                options.Add(new AppProgramItem(g.Key, label));
+                if (!foundSelected && g.Key.Equals(selected, StringComparison.OrdinalIgnoreCase))
+                {
+                    foundSelected = true;
+                }
+            }
+
+            if (!foundSelected && !string.IsNullOrEmpty(selected))
+            {
+                options.Add(new AppProgramItem(selected, $"{selected} (未运行)"));
+            }
+
+            return options;
         }
 
         private void RestoreOriginalSize(IntPtr hwnd)
@@ -661,88 +939,41 @@ namespace ScreenCaptureTool.FancyZones
 
         // ── 窗口过滤 ──
 
-        private bool IsEligibleWindow(IntPtr hwnd, out string rejectReason)
+        private bool IsEligibleWindow(IntPtr hwnd)
         {
-            rejectReason = "";
-            if (!NativeMethods.IsWindow(hwnd))
-            {
-                rejectReason = "NotWindow";
+            if (!NativeMethods.IsWindow(hwnd) || !NativeMethods.IsWindowVisible(hwnd) || NativeMethods.IsIconic(hwnd))
                 return false;
-            }
-            if (!NativeMethods.IsWindowVisible(hwnd))
-            {
-                rejectReason = "NotVisible";
-                return false;
-            }
-            if (NativeMethods.IsIconic(hwnd))
-            {
-                rejectReason = "Iconic";
-                return false;
-            }
 
-            // 必须是顶层窗口
             IntPtr root = NativeMethods.GetAncestor(hwnd, NativeMethods.GA_ROOT);
             if (root != IntPtr.Zero && root != hwnd)
-            {
-                rejectReason = $"NotRoot(root=0x{root:X})";
                 return false;
-            }
 
             int style = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_STYLE);
             int exStyle = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
 
-            // 排除子窗口或禁用窗口
-            if ((style & NativeMethods.WS_CHILD) != 0)
-            {
-                rejectReason = "WS_CHILD";
+            if ((style & NativeMethods.WS_CHILD) != 0 || (style & NativeMethods.WS_DISABLED) != 0)
                 return false;
-            }
-            if ((style & NativeMethods.WS_DISABLED) != 0)
-            {
-                rejectReason = "WS_DISABLED";
+            if ((exStyle & NativeMethods.WS_EX_TOOLWINDOW) != 0 || (exStyle & NativeMethods.WS_EX_NOACTIVATE) != 0)
                 return false;
-            }
-            // 排除工具窗口和不可激活浮层
-            if ((exStyle & NativeMethods.WS_EX_TOOLWINDOW) != 0)
-            {
-                rejectReason = "WS_EX_TOOLWINDOW";
-                return false;
-            }
-            if ((exStyle & NativeMethods.WS_EX_NOACTIVATE) != 0)
-            {
-                rejectReason = "WS_EX_NOACTIVATE";
-                return false;
-            }
 
-            // 排除桌面与任务栏等系统外壳窗口
             string cls = NativeMethods.GetWindowClass(hwnd);
             if (cls.Equals("Progman", StringComparison.OrdinalIgnoreCase) ||
                 cls.Equals("WorkerW", StringComparison.OrdinalIgnoreCase) ||
                 cls.Equals("Shell_TrayWnd", StringComparison.OrdinalIgnoreCase) ||
                 cls.Equals("SecondaryTrayWnd", StringComparison.OrdinalIgnoreCase))
             {
-                rejectReason = $"SystemShellClass({cls})";
                 return false;
             }
 
             if (NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT rect))
             {
                 if (rect.Width < 80 || rect.Height < 80)
-                {
-                    rejectReason = $"TooSmall({rect.Width}x{rect.Height})";
                     return false;
-                }
             }
 
-            // 排除自身进程
             NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
-            if (pid == currentPid)
-            {
-                rejectReason = "OwnProcess";
-                return false;
-            }
+            if (pid == currentPid) return false;
 
-            // 排除排除列表
             if (!string.IsNullOrWhiteSpace(settings.FancyZonesExcludedApps))
             {
                 try
@@ -754,15 +985,11 @@ namespace ScreenCaptureTool.FancyZones
                     foreach (string ex in excluded)
                     {
                         if (name.Equals(ex.Trim(), StringComparison.OrdinalIgnoreCase))
-                        {
-                            rejectReason = $"ExcludedApp({name})";
                             return false;
-                        }
                     }
                 }
                 catch
                 {
-                    // 访问被拒绝（提升窗口等），仍然尝试
                 }
             }
 
@@ -785,15 +1012,12 @@ namespace ScreenCaptureTool.FancyZones
 
         private bool IsActivationChordDown()
         {
-            // Prefer the physical button state so the overlay still responds if the hook
-            // callback is delayed; the hook state covers the interval around swallowed events.
             bool rightDown = rightButtonDown || NativeMethods.IsKeyDown(NativeMethods.VK_RBUTTON);
             return IsActivatorDown() && rightDown;
         }
 
         private bool IsMultiSelectDown()
         {
-            // 多选键 = Ctrl；如果激活键已经是 Ctrl，则用 Shift
             int activatorVk = settings.FancyZonesActivationKey switch
             {
                 0 => NativeMethods.VK_SHIFT,
@@ -805,60 +1029,6 @@ namespace ScreenCaptureTool.FancyZones
                 ? NativeMethods.VK_SHIFT
                 : NativeMethods.VK_CONTROL;
             return NativeMethods.IsKeyDown(multiVk);
-        }
-
-        // ── DEBUG 日志 ──
-
-        private void WriteDebugLog(string message)
-        {
-            if (!settings.FancyZonesDebugLog) return;
-            try
-            {
-                string line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}{Environment.NewLine}";
-                File.AppendAllText(DebugLogPath, line);
-            }
-            catch
-            {
-                // Ignore logging failures.
-            }
-        }
-
-        private static string DescribeWindow(IntPtr hwnd)
-        {
-            if (hwnd == IntPtr.Zero) return "hwnd=0x0";
-            IntPtr root = NativeMethods.GetAncestor(hwnd, NativeMethods.GA_ROOT);
-            int style = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_STYLE);
-            int exStyle = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
-            string cls = NativeMethods.GetWindowClass(hwnd);
-            string title = NativeMethods.GetWindowTitle(hwnd);
-            NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
-            string procName = "?";
-            try
-            {
-                using var proc = Process.GetProcessById((int)pid);
-                procName = proc.ProcessName;
-            }
-            catch (Exception ex)
-            {
-                procName = $"<err:{ex.GetType().Name}>";
-            }
-
-            NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT r);
-            return $"hwnd=0x{hwnd:X} root=0x{root:X} pid={pid} proc=\"{procName}\" class=\"{cls}\" title=\"{title}\" style=0x{style:X8} exStyle=0x{exStyle:X8} rect={r.ToRectangle()}";
-        }
-
-        private static bool IsRunningAsAdmin()
-        {
-            try
-            {
-                using var identity = WindowsIdentity.GetCurrent();
-                var principal = new WindowsPrincipal(identity);
-                return principal.IsInRole(WindowsBuiltInRole.Administrator);
-            }
-            catch
-            {
-                return false;
-            }
         }
     }
 }

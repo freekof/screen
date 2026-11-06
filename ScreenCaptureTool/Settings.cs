@@ -41,7 +41,6 @@ namespace ScreenCaptureTool
         public int FancyZonesSpacing { get; set; } = 8;
         public bool FancyZonesRestoreSize { get; set; } = true;
         public string FancyZonesExcludedApps { get; set; } = "";
-        public bool FancyZonesDebugLog { get; set; } = true;
 
         private static string FilePath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
 

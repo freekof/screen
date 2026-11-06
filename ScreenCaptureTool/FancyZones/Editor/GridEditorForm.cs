@@ -20,6 +20,8 @@ namespace ScreenCaptureTool.FancyZones
         private readonly Rectangle workArea;
         private readonly int spacing;
         private readonly List<Rectangle> zoneRects = new List<Rectangle>();
+        private readonly List<ComboBox> appCombos = new List<ComboBox>();
+        private bool updatingCombos;
         private int hoverZone = -1;
         private int dragBoundary = -1; // -1 = none
         private bool dragIsColumn; // true = column, false = row
@@ -92,8 +94,100 @@ namespace ScreenCaptureTool.FancyZones
 
         private void RecalcZones()
         {
+            layout.SyncZoneAppsCount();
             zoneRects.Clear();
             zoneRects.AddRange(layout.GetZoneRects(workArea, spacing));
+            if (dragBoundary < 0)
+            {
+                SyncAppCombos();
+            }
+        }
+
+        private void SyncAppCombos()
+        {
+            while (appCombos.Count > zoneRects.Count)
+            {
+                int last = appCombos.Count - 1;
+                ComboBox old = appCombos[last];
+                appCombos.RemoveAt(last);
+                Controls.Remove(old);
+                old.Dispose();
+            }
+
+            while (appCombos.Count < zoneRects.Count)
+            {
+                int idx = appCombos.Count;
+                var cmb = new ComboBox
+                {
+                    DropDownStyle = ComboBoxStyle.DropDownList,
+                    Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
+                    TabStop = false,
+                    Tag = idx
+                };
+                cmb.DropDown += (s, e) =>
+                {
+                    if (s is ComboBox cb && cb.Tag is int zIdx && zIdx >= 0 && zIdx < zoneRects.Count)
+                    {
+                        PopulateAppCombo(cb, layout.GetZoneApp(zIdx));
+                    }
+                };
+                cmb.SelectedIndexChanged += (s, e) =>
+                {
+                    if (updatingCombos) return;
+                    if (s is ComboBox cb && cb.Tag is int zIdx && zIdx >= 0 && zIdx < zoneRects.Count)
+                    {
+                        string app = (cb.SelectedItem as AppProgramItem)?.ProcessName ?? "";
+                        layout.SetZoneApp(zIdx, app);
+                        ActiveControl = null;
+                        Invalidate();
+                    }
+                };
+                appCombos.Add(cmb);
+                Controls.Add(cmb);
+                cmb.BringToFront();
+            }
+
+            for (int i = 0; i < zoneRects.Count; i++)
+            {
+                ComboBox cmb = appCombos[i];
+                cmb.Tag = i;
+                PopulateAppCombo(cmb, layout.GetZoneApp(i));
+
+                Rectangle r = zoneRects[i];
+                int comboX = r.X + 94;
+                int comboY = r.Y + 4;
+                int comboW = Math.Clamp(r.Width - 102, 70, 165);
+                cmb.Bounds = new Rectangle(comboX, comboY, comboW, 22);
+                cmb.Visible = (dragBoundary < 0) && r.Width >= 140 && r.Height >= 36;
+            }
+        }
+
+        private void PopulateAppCombo(ComboBox cmb, string selectedApp)
+        {
+            updatingCombos = true;
+            try
+            {
+                var options = FancyZonesManager.GetRunningProgramOptions(selectedApp);
+                cmb.Items.Clear();
+                int selIdx = 0;
+                for (int i = 0; i < options.Count; i++)
+                {
+                    cmb.Items.Add(options[i]);
+                    if (!string.IsNullOrEmpty(selectedApp) &&
+                        options[i].ProcessName.Equals(selectedApp, StringComparison.OrdinalIgnoreCase))
+                    {
+                        selIdx = i;
+                    }
+                }
+                if (cmb.Items.Count > 0)
+                {
+                    cmb.SelectedIndex = selIdx;
+                }
+            }
+            finally
+            {
+                updatingCombos = false;
+            }
         }
 
         // ── 鼠标事件 ──
@@ -166,6 +260,8 @@ namespace ScreenCaptureTool.FancyZones
             if (dragBoundary >= 0)
             {
                 dragBoundary = -1;
+                SyncAppCombos();
+                Invalidate();
                 return;
             }
 
@@ -213,34 +309,38 @@ namespace ScreenCaptureTool.FancyZones
                 Color.FromArgb(120, 180, 80, 80), Color.FromArgb(120, 80, 180, 180)
             };
 
-            for (int i = 0; i < zoneRects.Count; i++)
+            using (Font font = new Font("Segoe UI", 20, FontStyle.Bold))
+            using (Font sizeFont = new Font("Segoe UI", 9, FontStyle.Regular))
+            using (StringFormat sf = new StringFormat
             {
-                Rectangle r = zoneRects[i];
-                bool sel = selectedZones.Contains(i);
-                bool hover = i == hoverZone;
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center
+            })
+            {
+                for (int i = 0; i < zoneRects.Count; i++)
+                {
+                    Rectangle r = zoneRects[i];
+                    bool sel = selectedZones.Contains(i);
+                    bool hover = i == hoverZone;
 
-                Color fill = palette[i % palette.Length];
-                if (sel) fill = Color.FromArgb(160, 255, 200, 60);
-                else if (hover) fill = Color.FromArgb(fill.A + 40, fill.R, fill.G, fill.B);
+                    Color fill = palette[i % palette.Length];
+                    if (sel) fill = Color.FromArgb(160, 255, 200, 60);
+                    else if (hover) fill = Color.FromArgb(fill.A + 40, fill.R, fill.G, fill.B);
 
-                using (SolidBrush fb = new SolidBrush(fill))
-                {
-                    g.FillRectangle(fb, r);
-                }
-                using (Pen pen = new Pen(sel ? Color.Yellow : Color.White, sel ? 3 : 1))
-                {
-                    g.DrawRectangle(pen, r);
-                }
+                    using (SolidBrush fb = new SolidBrush(fill))
+                    {
+                        g.FillRectangle(fb, r);
+                    }
+                    using (Pen pen = new Pen(sel ? Color.Yellow : Color.White, sel ? 3 : 1))
+                    {
+                        g.DrawRectangle(pen, r);
+                    }
 
-                using (Font font = new Font("Segoe UI", 20, FontStyle.Bold))
-                using (StringFormat sf = new StringFormat
-                {
-                    Alignment = StringAlignment.Center,
-                    LineAlignment = StringAlignment.Center
-                })
-                {
                     g.DrawString((i + 1).ToString(), font, Brushes.White,
                         new RectangleF(r.X, r.Y, r.Width, r.Height), sf);
+
+                    string dimText = $"{r.Width} × {r.Height}";
+                    g.DrawString(dimText, sizeFont, Brushes.WhiteSmoke, r.X + 6, r.Y + 6);
                 }
             }
         }
@@ -573,6 +673,7 @@ namespace ScreenCaptureTool.FancyZones
 
         private void RenumberZones()
         {
+            var oldApps = new List<string>(layout.ZoneApps);
             var mapping = new Dictionary<int, int>();
             int next = 0;
             for (int r = 0; r < layout.CellMap.Count; r++)
@@ -587,6 +688,16 @@ namespace ScreenCaptureTool.FancyZones
                     layout.CellMap[r][c] = mapping[old];
                 }
             }
+
+            var newApps = Enumerable.Repeat("", next).ToList();
+            foreach (var kv in mapping)
+            {
+                if (kv.Key >= 0 && kv.Key < oldApps.Count && !string.IsNullOrWhiteSpace(oldApps[kv.Key]))
+                {
+                    newApps[kv.Value] = oldApps[kv.Key];
+                }
+            }
+            layout.ZoneApps = newApps;
         }
 
         private void CleanupGrid()

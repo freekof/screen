@@ -25,15 +25,13 @@ namespace ScreenCaptureTool
         private bool resourcesCleaned;
         private ZoneStore zoneStore;
         private FancyZonesManager fancyZonesManager;
-        private ToolStripMenuItem zonesEnabledMenuItem;
+        private LayoutEditorForm? layoutEditorForm;
 
-        private CheckBox chkFancyZonesEnabled;
         private TextBox txtFancyZonesHotkey;
         private ComboBox cmbFancyZonesActivationKey;
         private TextBox txtFancyZonesSpacing;
         private CheckBox chkFancyZonesRestoreSize;
         private TextBox txtFancyZonesExcludedApps;
-        private CheckBox chkFancyZonesDebugLog;
         private Button btnOpenLayoutEditor;
 
         [DllImport("user32.dll")]
@@ -91,14 +89,13 @@ namespace ScreenCaptureTool
             OverlayForm.OpenOverlayStateChanged += OverlayForm_OpenOverlayStateChanged;
 
             this.Text = "抓屏软件设置";
-            this.Size = new Size(460, 840);
+            this.Size = new Size(460, 790);
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
             this.StartPosition = FormStartPosition.CenterScreen;
 
             SetupTrayIcon();
             SetupUI();
-            UpdateFancyZonesState();
         }
 
         private void SetupUI()
@@ -206,16 +203,7 @@ namespace ScreenCaptureTool
             y += rowH + 12;
 
             // === 窗口区域布局 (FancyZones) ===
-            chkFancyZonesEnabled = new CheckBox
-            {
-                Text = "启用窗口区域吸附",
-                Checked = settings.FancyZonesEnabled,
-                Location = new Point(labelX, y + 2),
-                Size = new Size(labelW, 22)
-            };
-            y += rowH;
-
-            var lblZonesHotkey = new Label { Text = "布局编辑器快捷键:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            var lblZonesHotkey = new Label { Text = "一键调整窗口快捷键:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
             txtFancyZonesHotkey = new TextBox
             {
                 Text = settings.FancyZonesEditorHotkey,
@@ -264,15 +252,6 @@ namespace ScreenCaptureTool
                 Location = new Point(inputX, y),
                 Size = new Size(inputW, 23)
             };
-            y += rowH;
-
-            chkFancyZonesDebugLog = new CheckBox
-            {
-                Text = "输出分区 DEBUG 日志 (fancyzones_debug.log)",
-                Checked = settings.FancyZonesDebugLog,
-                Location = new Point(labelX, y + 2),
-                Size = new Size(labelW + inputW, 22)
-            };
             y += rowH + 6;
 
             btnOpenLayoutEditor = new Button
@@ -318,16 +297,12 @@ namespace ScreenCaptureTool
                 settings.StampBoxWidth = stampWidth;
                 settings.StampBoxHeight = stampHeight;
                 settings.StampWheelScaleStepPercent = stampStep;
-                settings.FancyZonesEnabled = chkFancyZonesEnabled.Checked;
-                zonesEnabledMenuItem.Checked = settings.FancyZonesEnabled;
                 settings.FancyZonesActivationKey = Math.Clamp(cmbFancyZonesActivationKey.SelectedIndex, 0, 2);
                 settings.FancyZonesSpacing = zoneSpacing;
                 settings.FancyZonesRestoreSize = chkFancyZonesRestoreSize.Checked;
                 settings.FancyZonesExcludedApps = txtFancyZonesExcludedApps.Text.Trim();
-                settings.FancyZonesDebugLog = chkFancyZonesDebugLog.Checked;
                 settings.Save();
                 UpdateHotKey();
-                UpdateFancyZonesState();
                 this.Hide();
                 trayIcon.ShowBalloonTip(2000, "设置已保存", $"程序已隐藏，按 {settings.Hotkey} 开始截图", ToolTipIcon.Info);
             };
@@ -369,7 +344,6 @@ namespace ScreenCaptureTool
             settingsPanel.Controls.Add(txtStampHeight);
             settingsPanel.Controls.Add(lblStampStep);
             settingsPanel.Controls.Add(txtStampStep);
-            settingsPanel.Controls.Add(chkFancyZonesEnabled);
             settingsPanel.Controls.Add(lblZonesHotkey);
             settingsPanel.Controls.Add(txtFancyZonesHotkey);
             settingsPanel.Controls.Add(lblActivationKey);
@@ -379,7 +353,6 @@ namespace ScreenCaptureTool
             settingsPanel.Controls.Add(chkFancyZonesRestoreSize);
             settingsPanel.Controls.Add(lblExcludedApps);
             settingsPanel.Controls.Add(txtFancyZonesExcludedApps);
-            settingsPanel.Controls.Add(chkFancyZonesDebugLog);
             settingsPanel.Controls.Add(btnOpenLayoutEditor);
             settingsPanel.Controls.Add(btnApply);
             settingsPanel.Controls.Add(btnCapture);
@@ -516,22 +489,7 @@ namespace ScreenCaptureTool
             trayMenu.Items.Add("立即截图 (F1)", null, (s, e) => StartCapture(false));
             trayMenu.Items.Add("印章截图 (F2)", null, (s, e) => StartCapture(true));
             trayMenu.Items.Add("区域布局编辑器", null, (s, e) => OpenLayoutEditor());
-            zonesEnabledMenuItem = new ToolStripMenuItem("启用窗口区域吸附")
-            {
-                CheckOnClick = true,
-                Checked = settings.FancyZonesEnabled
-            };
-            zonesEnabledMenuItem.CheckedChanged += (s, e) =>
-            {
-                settings.FancyZonesEnabled = zonesEnabledMenuItem.Checked;
-                if (chkFancyZonesEnabled != null)
-                {
-                    chkFancyZonesEnabled.Checked = settings.FancyZonesEnabled;
-                }
-                settings.Save();
-                UpdateFancyZonesState();
-            };
-            trayMenu.Items.Add(zonesEnabledMenuItem);
+            trayMenu.Items.Add("一键调整窗口", null, (s, e) => ApplyCurrentLayoutWindows());
             trayMenu.Items.Add("-");
             trayMenu.Items.Add("退出", null, (s, e) => ExitApplication());
 
@@ -580,7 +538,7 @@ namespace ScreenCaptureTool
                 settings.FancyZonesEditorHotkeyCode);
             if (!zonesEditorSuccess)
             {
-                MessageBox.Show($"无法注册区域编辑器快捷键 {settings.FancyZonesEditorHotkey}，可能已被占用。");
+                MessageBox.Show($"无法注册一键调整窗口快捷键 {settings.FancyZonesEditorHotkey}，可能已被占用。");
             }
         }
 
@@ -656,29 +614,42 @@ namespace ScreenCaptureTool
             }
             if (m.Msg == 0x0312 && m.WParam.ToInt32() == FANCY_ZONES_EDITOR_HOTKEY_ID)
             {
-                OpenLayoutEditor();
+                ApplyCurrentLayoutWindows();
             }
             base.WndProc(ref m);
         }
 
         private void OpenLayoutEditor()
         {
-            using (var editor = new LayoutEditorForm(zoneStore, settings))
+            if (layoutEditorForm != null && !layoutEditorForm.IsDisposed)
             {
-                editor.ShowDialog(this);
+                layoutEditorForm.Show();
+                if (layoutEditorForm.WindowState == FormWindowState.Minimized)
+                {
+                    layoutEditorForm.WindowState = FormWindowState.Normal;
+                }
+                layoutEditorForm.Activate();
+                return;
             }
+
+            layoutEditorForm = new LayoutEditorForm(zoneStore, settings, fancyZonesManager);
+            layoutEditorForm.FormClosed += (s, e) => layoutEditorForm = null;
+            layoutEditorForm.Show();
+            layoutEditorForm.Activate();
         }
 
-        private void UpdateFancyZonesState()
+        private void ApplyCurrentLayoutWindows()
         {
-            if (settings.FancyZonesEnabled)
-            {
-                fancyZonesManager.Start();
-            }
-            else
-            {
-                fancyZonesManager.Stop();
-            }
+            ZoneLayout? layout = (layoutEditorForm != null && !layoutEditorForm.IsDisposed)
+                ? layoutEditorForm.CurrentLayout
+                : zoneStore.ActiveLayout;
+            Screen targetScreen = (layoutEditorForm != null && !layoutEditorForm.IsDisposed && layoutEditorForm.Visible)
+                ? Screen.FromControl(layoutEditorForm)
+                : Screen.FromPoint(Cursor.Position);
+            IWin32Window? owner = (layoutEditorForm != null && !layoutEditorForm.IsDisposed && layoutEditorForm.Visible)
+                ? layoutEditorForm
+                : null;
+            fancyZonesManager.ApplyLayoutWindows(layout, targetScreen, owner);
         }
 
         private void StartCapture(bool stampMode)
@@ -709,6 +680,18 @@ namespace ScreenCaptureTool
         {
             if (isExiting) return;
             isExiting = true;
+            try
+            {
+                if (layoutEditorForm != null && !layoutEditorForm.IsDisposed)
+                {
+                    layoutEditorForm.Close();
+                    layoutEditorForm.Dispose();
+                    layoutEditorForm = null;
+                }
+            }
+            catch
+            {
+            }
             try
             {
                 OverlayForm.CloseAllOpen();
