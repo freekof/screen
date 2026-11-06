@@ -21,6 +21,8 @@ namespace ScreenCaptureTool
         private const uint MOD_NOREPEAT = 0x4000;
         private bool cancelHotkeyRegistered;
         private bool captureInProgress;
+        private bool isExiting;
+        private bool resourcesCleaned;
         private ZoneStore zoneStore;
         private FancyZonesManager fancyZonesManager;
         private ToolStripMenuItem zonesEnabledMenuItem;
@@ -31,6 +33,7 @@ namespace ScreenCaptureTool
         private TextBox txtFancyZonesSpacing;
         private CheckBox chkFancyZonesRestoreSize;
         private TextBox txtFancyZonesExcludedApps;
+        private CheckBox chkFancyZonesDebugLog;
         private Button btnOpenLayoutEditor;
 
         [DllImport("user32.dll")]
@@ -261,6 +264,15 @@ namespace ScreenCaptureTool
                 Location = new Point(inputX, y),
                 Size = new Size(inputW, 23)
             };
+            y += rowH;
+
+            chkFancyZonesDebugLog = new CheckBox
+            {
+                Text = "输出分区 DEBUG 日志 (fancyzones_debug.log)",
+                Checked = settings.FancyZonesDebugLog,
+                Location = new Point(labelX, y + 2),
+                Size = new Size(labelW + inputW, 22)
+            };
             y += rowH + 6;
 
             btnOpenLayoutEditor = new Button
@@ -312,6 +324,7 @@ namespace ScreenCaptureTool
                 settings.FancyZonesSpacing = zoneSpacing;
                 settings.FancyZonesRestoreSize = chkFancyZonesRestoreSize.Checked;
                 settings.FancyZonesExcludedApps = txtFancyZonesExcludedApps.Text.Trim();
+                settings.FancyZonesDebugLog = chkFancyZonesDebugLog.Checked;
                 settings.Save();
                 UpdateHotKey();
                 UpdateFancyZonesState();
@@ -366,6 +379,7 @@ namespace ScreenCaptureTool
             settingsPanel.Controls.Add(chkFancyZonesRestoreSize);
             settingsPanel.Controls.Add(lblExcludedApps);
             settingsPanel.Controls.Add(txtFancyZonesExcludedApps);
+            settingsPanel.Controls.Add(chkFancyZonesDebugLog);
             settingsPanel.Controls.Add(btnOpenLayoutEditor);
             settingsPanel.Controls.Add(btnApply);
             settingsPanel.Controls.Add(btnCapture);
@@ -519,7 +533,7 @@ namespace ScreenCaptureTool
             };
             trayMenu.Items.Add(zonesEnabledMenuItem);
             trayMenu.Items.Add("-");
-            trayMenu.Items.Add("退出", null, (s, e) => Application.Exit());
+            trayMenu.Items.Add("退出", null, (s, e) => ExitApplication());
 
             trayIcon = new NotifyIcon();
             trayIcon.Text = "抓屏软件 - 按 F1 截图";
@@ -691,23 +705,73 @@ namespace ScreenCaptureTool
             }
         }
 
+        private void ExitApplication()
+        {
+            if (isExiting) return;
+            isExiting = true;
+            try
+            {
+                OverlayForm.CloseAllOpen();
+            }
+            catch
+            {
+            }
+            CleanupResources();
+            Application.Exit();
+        }
+
+        private void CleanupResources()
+        {
+            if (resourcesCleaned) return;
+            resourcesCleaned = true;
+
+            OverlayForm.OpenOverlayStateChanged -= OverlayForm_OpenOverlayStateChanged;
+            if (this.IsHandleCreated && !this.IsDisposed)
+            {
+                try
+                {
+                    UnregisterHotKey(this.Handle, HOTKEY_ID);
+                    UnregisterHotKey(this.Handle, CANCEL_HOTKEY_ID);
+                    cancelHotkeyRegistered = false;
+                    UnregisterHotKey(this.Handle, STAMP_HOTKEY_ID);
+                    UnregisterHotKey(this.Handle, FANCY_ZONES_EDITOR_HOTKEY_ID);
+                }
+                catch
+                {
+                }
+            }
+
+            try
+            {
+                fancyZonesManager?.Dispose();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (trayIcon != null)
+                {
+                    trayIcon.Visible = false;
+                    trayIcon.Dispose();
+                }
+            }
+            catch
+            {
+            }
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (e.CloseReason == CloseReason.UserClosing)
+            if (!isExiting && e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
                 this.Hide();
             }
             else
             {
-                OverlayForm.OpenOverlayStateChanged -= OverlayForm_OpenOverlayStateChanged;
-                UnregisterHotKey(this.Handle, HOTKEY_ID);
-                UnregisterHotKey(this.Handle, CANCEL_HOTKEY_ID);
-                cancelHotkeyRegistered = false;
-                UnregisterHotKey(this.Handle, STAMP_HOTKEY_ID);
-                UnregisterHotKey(this.Handle, FANCY_ZONES_EDITOR_HOTKEY_ID);
-                fancyZonesManager?.Dispose();
-                trayIcon.Dispose();
+                CleanupResources();
             }
         }
 

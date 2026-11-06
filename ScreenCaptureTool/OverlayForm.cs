@@ -166,13 +166,11 @@ namespace ScreenCaptureTool
                 if (ImageScale == 100)
                 {
                     g.InterpolationMode = InterpolationMode.NearestNeighbor;
-                    g.PixelOffsetMode = PixelOffsetMode.Half;
-                    g.DrawImage(image, destRect);
+                    g.DrawImage(image, new Rectangle(destRect.Location, image.Size));
                 }
                 else
                 {
                     g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                    g.PixelOffsetMode = PixelOffsetMode.Half;
                     g.DrawImage(image, destRect);
                 }
             }
@@ -403,41 +401,30 @@ namespace ScreenCaptureTool
 
         private int MatchWithTemplate(Mat screenGray, Mat templateGray, double threshold)
         {
-            using (Mat trimmedTemplate = TrimWhiteBorder(templateGray, out Rectangle trimRect))
+            int totalCount = 0;
+            using (Mat trimmedTemplate = TrimWhiteBorder(templateGray))
             {
-                bool wasTrimmed = trimRect.X != 0 || trimRect.Y != 0 ||
-                                  trimRect.Width != templateGray.Width || trimRect.Height != templateGray.Height;
-                if (wasTrimmed)
+                bool trimmed = trimmedTemplate.Width < templateGray.Width || trimmedTemplate.Height < templateGray.Height;
+                if (trimmed)
                 {
-                    int count = MatchWithTemplateCore(screenGray, trimmedTemplate, threshold, trimRect);
-                    if (ReachedTargetMatchCount() || count >= settings.MaxMatchResults)
-                    {
-                        return count;
-                    }
-
-                    // Trimmed match had too few results: try one exact-scale pass with the full template.
-                    return count + MatchWithTemplateAdaptive(screenGray, templateGray, threshold,
-                        new Rectangle(0, 0, templateGray.Width, templateGray.Height), 1.0);
+                    totalCount += MatchWithTemplateCore(screenGray, trimmedTemplate, threshold);
                 }
-
-                return MatchWithTemplateCore(screenGray, templateGray, threshold,
-                    new Rectangle(0, 0, templateGray.Width, templateGray.Height));
             }
+
+            if (ReachedTargetMatchCount() || totalCount >= settings.MaxMatchResults)
+            {
+                return totalCount;
+            }
+
+            if (totalCount < MaxMatchCount)
+            {
+                totalCount += MatchWithTemplateCore(screenGray, templateGray, threshold);
+            }
+
+            return totalCount;
         }
 
-        private Rectangle MapMatchToSourceImage(Rectangle matchRect, Rectangle sourceCrop, double scale)
-        {
-            // Restore the full, untrimmed template bounds so marker geometry and color validation
-            // stay aligned with the source bitmap even when a trimmed/multi-scale template matched.
-            scale = Math.Max(0.01, scale);
-            int x = matchRect.X - (int)Math.Round(sourceCrop.X * scale);
-            int y = matchRect.Y - (int)Math.Round(sourceCrop.Y * scale);
-            int width = Math.Max(1, (int)Math.Round(image.Width * scale));
-            int height = Math.Max(1, (int)Math.Round(image.Height * scale));
-            return new Rectangle(x, y, width, height);
-        }
-
-        private int MatchWithTemplateCore(Mat screenGray, Mat templateGray, double threshold, Rectangle sourceCrop)
+        private int MatchWithTemplateCore(Mat screenGray, Mat templateGray, double threshold)
         {
             if (screenGray.Width < templateGray.Width || screenGray.Height < templateGray.Height)
             {
@@ -445,7 +432,7 @@ namespace ScreenCaptureTool
             }
 
             // 先用原始尺度（scale=1.0）精确匹配（使用 Adaptive：CCoeff→Edges）
-            int totalCount = MatchWithTemplateAdaptive(screenGray, templateGray, threshold, sourceCrop, 1.0);
+            int totalCount = MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
 
             if (ReachedTargetMatchCount() || totalCount >= settings.MaxMatchResults)
             {
@@ -482,7 +469,7 @@ namespace ScreenCaptureTool
                     Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
 
                     // 多尺度只跑 CCoeff，避免 Edges 在每个尺度上的额外成本
-                    int scaleCount = MatchWithTemplateCCoeff(screenGray, scaledTemplate, relaxed, sourceCrop, scales[i]);
+                    int scaleCount = MatchWithTemplateCCoeff(screenGray, scaledTemplate, relaxed);
                     totalCount += scaleCount;
                 }
             }
@@ -490,7 +477,7 @@ namespace ScreenCaptureTool
             return totalCount;
         }
 
-        private static Mat TrimWhiteBorder(Mat templateGray, out Rectangle cropRect)
+        private static Mat TrimWhiteBorder(Mat templateGray)
         {
             const double WhiteThreshold = 245.0;
             int top = 0;
@@ -500,32 +487,28 @@ namespace ScreenCaptureTool
 
             while (top <= bottom)
             {
-                using Mat row = templateGray.Row(top);
-                Cv2.MinMaxLoc(row, out double minVal, out _, out _, out _);
+                Cv2.MinMaxLoc(templateGray.Row(top), out double minVal, out _, out _, out _);
                 if (minVal < WhiteThreshold) break;
                 top++;
             }
 
             while (bottom >= top)
             {
-                using Mat row = templateGray.Row(bottom);
-                Cv2.MinMaxLoc(row, out double minVal, out _, out _, out _);
+                Cv2.MinMaxLoc(templateGray.Row(bottom), out double minVal, out _, out _, out _);
                 if (minVal < WhiteThreshold) break;
                 bottom--;
             }
 
             while (left <= right)
             {
-                using Mat col = templateGray.Col(left);
-                Cv2.MinMaxLoc(col, out double minVal, out _, out _, out _);
+                Cv2.MinMaxLoc(templateGray.Col(left), out double minVal, out _, out _, out _);
                 if (minVal < WhiteThreshold) break;
                 left++;
             }
 
             while (right >= left)
             {
-                using Mat col = templateGray.Col(right);
-                Cv2.MinMaxLoc(col, out double minVal, out _, out _, out _);
+                Cv2.MinMaxLoc(templateGray.Col(right), out double minVal, out _, out _, out _);
                 if (minVal < WhiteThreshold) break;
                 right--;
             }
@@ -534,36 +517,31 @@ namespace ScreenCaptureTool
             int height = bottom - top + 1;
             if (width < 8 || height < 8)
             {
-                cropRect = new Rectangle(0, 0, templateGray.Width, templateGray.Height);
                 return templateGray.Clone();
             }
 
             Rect roi = new Rect(left, top, width, height);
-            cropRect = new Rectangle(left, top, width, height);
-            using Mat cropped = new Mat(templateGray, roi);
-            return cropped.Clone();
+            return new Mat(templateGray, roi).Clone();
         }
 
-        private int MatchWithTemplateAdaptive(Mat screenGray, Mat templateGray, double threshold,
-            Rectangle sourceCrop, double scale)
+        private int MatchWithTemplateAdaptive(Mat screenGray, Mat templateGray, double threshold)
         {
             int totalCount = 0;
             bool lowVariance = IsLowVariance(templateGray);
             if (!lowVariance)
             {
-                totalCount += MatchWithTemplateCCoeff(screenGray, templateGray, threshold, sourceCrop, scale);
+                totalCount += MatchWithTemplateCCoeff(screenGray, templateGray, threshold);
             }
 
             if (totalCount == 0)
             {
-                totalCount += MatchWithTemplateByEdges(screenGray, templateGray, threshold, sourceCrop, scale);
+                totalCount += MatchWithTemplateByEdges(screenGray, templateGray, threshold);
             }
 
             return totalCount;
         }
 
-        private int MatchWithTemplateByEdges(Mat screenGray, Mat templateGray, double threshold,
-            Rectangle sourceCrop, double scale)
+        private int MatchWithTemplateByEdges(Mat screenGray, Mat templateGray, double threshold)
         {
             if (ReachedTargetMatchCount())
             {
@@ -583,12 +561,11 @@ namespace ScreenCaptureTool
                 }
 
                 double edgeThreshold = Math.Max(0.4, threshold - 0.12);
-                return MatchWithTemplateCCoeff(screenEdges, templateEdges, edgeThreshold, sourceCrop, scale);
+                return MatchWithTemplateCCoeff(screenEdges, templateEdges, edgeThreshold);
             }
         }
 
-        private int MatchWithTemplateCCoeff(Mat screenGray, Mat templateGray, double threshold,
-            Rectangle sourceCrop, double scale)
+        private int MatchWithTemplateCCoeff(Mat screenGray, Mat templateGray, double threshold)
         {
             if (ReachedTargetMatchCount())
             {
@@ -615,15 +592,15 @@ namespace ScreenCaptureTool
 
                     if (maxVal >= threshold)
                     {
-                        Rectangle matchRect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
-                        Rectangle imageRect = MapMatchToSourceImage(matchRect, sourceCrop, scale);
-                        if (!IsCaptureRegion(imageRect) && !IsOverlapping(imageRect) && PassesColorValidation(imageRect))
+                        Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
+                        bool colorOk = PassesColorValidation(rect);
+                        if (colorOk && !IsCaptureRegion(rect) && !IsOverlapping(rect))
                         {
-                            int markerNo = AddNumberedMarker(imageRect);
+                            int markerNo = AddNumberedMarker(rect);
                             if (markerNo > 0)
                             {
                                 count++;
-                                LogMatch("Template_CCoeff", maxVal, imageRect, true, markerNo);
+                                LogMatch("Template_CCoeff", maxVal, rect, true, markerNo);
                             }
                         }
                         // 清除整个模板大小的矩形区域，防止 1px 偏移重复匹配
@@ -641,9 +618,8 @@ namespace ScreenCaptureTool
 
         private static void SuppressResultRegion(Mat result, int x, int y, int templateW, int templateH, double fillValue)
         {
-            // Suppress every candidate whose template rectangle would overlap this match.
-            int x0 = Math.Max(0, x - templateW + 1);
-            int y0 = Math.Max(0, y - templateH + 1);
+            int x0 = Math.Max(0, x - templateW / 2);
+            int y0 = Math.Max(0, y - templateH / 2);
             int x1 = Math.Min(result.Width, x + templateW);
             int y1 = Math.Min(result.Height, y + templateH);
             if (x1 > x0 && y1 > y0)

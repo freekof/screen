@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace ScreenCaptureTool.FancyZones
 {
@@ -11,6 +12,7 @@ namespace ScreenCaptureTool.FancyZones
 
         public const uint EVENT_SYSTEM_MOVESIZESTART = 0x000A;
         public const uint EVENT_SYSTEM_MOVESIZEEND   = 0x000B;
+        public const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
         public const uint WINEVENT_OUTOFCONTEXT      = 0x0000;
         public const uint WINEVENT_SKIPOWNPROCESS    = 0x0002;
 
@@ -89,8 +91,11 @@ namespace ScreenCaptureTool.FancyZones
         public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
         public const int WS_THICKFRAME  = 0x00040000;
+        public const int WS_CAPTION     = 0x00C00000;
+        public const int WS_DISABLED    = 0x08000000;
         public const int WS_CHILD       = 0x40000000;
         public const int WS_EX_TOOLWINDOW = 0x00000080;
+        public const int WS_EX_NOACTIVATE = 0x08000000;
 
         public const int GA_ROOT = 2;
 
@@ -98,7 +103,30 @@ namespace ScreenCaptureTool.FancyZones
         public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
 
         [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+        [DllImport("user32.dll")]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        public static string GetWindowTitle(IntPtr hWnd)
+        {
+            var sb = new StringBuilder(256);
+            GetWindowText(hWnd, sb, sb.Capacity);
+            return sb.ToString();
+        }
+
+        public static string GetWindowClass(IntPtr hWnd)
+        {
+            var sb = new StringBuilder(256);
+            GetClassName(hWnd, sb, sb.Capacity);
+            return sb.ToString();
+        }
 
         // ── Cursor & Key State ──
 
@@ -115,17 +143,18 @@ namespace ScreenCaptureTool.FancyZones
         [DllImport("user32.dll")]
         public static extern short GetAsyncKeyState(int vKey);
 
+        public const int VK_LBUTTON = 0x01;
+        public const int VK_RBUTTON = 0x02;
         public const int VK_SHIFT   = 0x10;
         public const int VK_CONTROL = 0x11;
         public const int VK_MENU    = 0x12; // Alt
-        public const int VK_RBUTTON = 0x02;
         public const int VK_ESCAPE  = 0x1B;
 
         public static bool IsKeyDown(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
 
         // ── Window Placement ──
 
-        [DllImport("user32.dll")]
+        [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
             int X, int Y, int cx, int cy, uint uFlags);
