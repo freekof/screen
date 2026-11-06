@@ -234,10 +234,10 @@ namespace ScreenCaptureTool.FancyZones
             {
                 Rectangle r = zoneRects[i];
                 Rectangle clamped = ClampZoneRect(r);
-                double rx = Math.Clamp((clamped.X - localWorkArea.X) / totalW, 0.0, 1.0);
-                double ry = Math.Clamp((clamped.Y - localWorkArea.Y) / totalH, 0.0, 1.0);
-                double rw = Math.Clamp(clamped.Width / totalW, 0.0, 1.0 - rx);
-                double rh = Math.Clamp(clamped.Height / totalH, 0.0, 1.0 - ry);
+                double rx = (clamped.X - localWorkArea.X) / totalW;
+                double ry = (clamped.Y - localWorkArea.Y) / totalH;
+                double rw = Math.Max(0.01, clamped.Width / totalW);
+                double rh = Math.Max(0.01, clamped.Height / totalH);
 
                 layout.CanvasZones.Add(new ZoneRect(rx, ry, rw, rh, zoneApps[i]));
             }
@@ -304,11 +304,20 @@ namespace ScreenCaptureTool.FancyZones
                 PopulateAppCombo(cmb, app);
 
                 Rectangle r = displayRects[i];
-                int comboX = r.X + 94;
-                int comboY = r.Y + 4;
-                int comboW = Math.Clamp(r.Width - 102, 70, 165);
-                cmb.Bounds = new Rectangle(comboX, comboY, comboW, 22);
-                cmb.Visible = (dragMode == DragMode.None) && r.Width >= 140 && r.Height >= 36;
+                Rectangle vis = Rectangle.Intersect(r, localWorkArea);
+
+                if (vis.Width >= 140 && vis.Height >= 36)
+                {
+                    int comboX = vis.X + 94;
+                    int comboY = vis.Y + 4;
+                    int comboW = Math.Clamp(vis.Width - 102, 70, 165);
+                    cmb.Bounds = new Rectangle(comboX, comboY, comboW, 22);
+                    cmb.Visible = (dragMode == DragMode.None);
+                }
+                else
+                {
+                    cmb.Visible = false;
+                }
             }
         }
 
@@ -342,14 +351,19 @@ namespace ScreenCaptureTool.FancyZones
 
         private Rectangle ClampZoneRect(Rectangle r)
         {
-            int maxW = Math.Max(MinZoneSize, localWorkArea.Width);
-            int maxH = Math.Max(MinZoneSize, localWorkArea.Height);
+            int maxW = Math.Max(MinZoneSize, localWorkArea.Width * 3);
+            int maxH = Math.Max(MinZoneSize, localWorkArea.Height * 3);
 
             int w = Math.Clamp(r.Width, MinZoneSize, maxW);
             int h = Math.Clamp(r.Height, MinZoneSize, maxH);
 
-            int x = Math.Clamp(r.X, localWorkArea.Left, localWorkArea.Right - w);
-            int y = Math.Clamp(r.Y, localWorkArea.Top, localWorkArea.Bottom - h);
+            int minX = localWorkArea.Left - w + MinZoneSize;
+            int maxX = localWorkArea.Right - MinZoneSize;
+            int minY = localWorkArea.Top - h + MinZoneSize;
+            int maxY = localWorkArea.Bottom - MinZoneSize;
+
+            int x = Math.Clamp(r.X, minX, maxX);
+            int y = Math.Clamp(r.Y, minY, maxY);
 
             return new Rectangle(x, y, w, h);
         }
@@ -617,22 +631,30 @@ namespace ScreenCaptureTool.FancyZones
 
             if ((dir & ResizeDir.Left) != 0)
             {
-                left = Math.Clamp(left + dx, localWorkArea.Left, right - MinZoneSize);
+                int maxLeft = Math.Min(right - MinZoneSize, localWorkArea.Right - MinZoneSize);
+                int minLeft = localWorkArea.Left - localWorkArea.Width * 2;
+                left = Math.Clamp(left + dx, minLeft, maxLeft);
             }
             if ((dir & ResizeDir.Right) != 0)
             {
-                right = Math.Clamp(right + dx, left + MinZoneSize, localWorkArea.Right);
+                int minRight = Math.Max(left + MinZoneSize, localWorkArea.Left + MinZoneSize);
+                int maxRight = localWorkArea.Right + localWorkArea.Width * 2;
+                right = Math.Clamp(right + dx, minRight, maxRight);
             }
             if ((dir & ResizeDir.Top) != 0)
             {
-                top = Math.Clamp(top + dy, localWorkArea.Top, bottom - MinZoneSize);
+                int maxTop = Math.Min(bottom - MinZoneSize, localWorkArea.Bottom - MinZoneSize);
+                int minTop = localWorkArea.Top - localWorkArea.Height * 2;
+                top = Math.Clamp(top + dy, minTop, maxTop);
             }
             if ((dir & ResizeDir.Bottom) != 0)
             {
-                bottom = Math.Clamp(bottom + dy, top + MinZoneSize, localWorkArea.Bottom);
+                int minBottom = Math.Max(top + MinZoneSize, localWorkArea.Top + MinZoneSize);
+                int maxBottom = localWorkArea.Bottom + localWorkArea.Height * 2;
+                bottom = Math.Clamp(bottom + dy, minBottom, maxBottom);
             }
 
-            return Rectangle.FromLTRB(left, top, right, bottom);
+            return ClampZoneRect(Rectangle.FromLTRB(left, top, right, bottom));
         }
 
         private void UpdateCursorAndHover(Point pt)
@@ -810,13 +832,15 @@ namespace ScreenCaptureTool.FancyZones
                         g.DrawRectangle(borderPen, r);
                     }
 
-                    // 区域序号与尺寸信息
+                    // 区域序号与尺寸信息（锚定在可见区域内，确保部分越界时仍然可见）
                     string label = (i + 1).ToString();
-                    RectangleF labelRect = new RectangleF(r.X, r.Y, r.Width, r.Height);
+                    Rectangle vis = Rectangle.Intersect(r, localWorkArea);
+                    Rectangle targetTextRect = (vis.Width > 0 && vis.Height > 0) ? vis : r;
+                    RectangleF labelRect = new RectangleF(targetTextRect.X, targetTextRect.Y, targetTextRect.Width, targetTextRect.Height);
                     g.DrawString(label, indexFont, Brushes.White, labelRect, centerFormat);
 
                     string dimText = $"{r.Width} × {r.Height}";
-                    g.DrawString(dimText, sizeFont, Brushes.WhiteSmoke, r.X + 6, r.Y + 6);
+                    g.DrawString(dimText, sizeFont, Brushes.WhiteSmoke, targetTextRect.X + 6, targetTextRect.Y + 6);
                 }
 
                 // 为选中区域绘制 8 个控制手柄

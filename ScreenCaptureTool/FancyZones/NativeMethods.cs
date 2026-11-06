@@ -161,6 +161,11 @@ namespace ScreenCaptureTool.FancyZones
 
         // ── Window Placement ──
 
+        public static readonly IntPtr HWND_TOP = IntPtr.Zero;
+        public static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
+        public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,

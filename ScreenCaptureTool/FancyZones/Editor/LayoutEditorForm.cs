@@ -336,6 +336,7 @@ namespace ScreenCaptureTool.FancyZones
 
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.SetClip(previewPanel.ClientRectangle);
 
             // 16:9 预览区域
             int pw = previewPanel.ClientSize.Width - 20;
@@ -391,8 +392,17 @@ namespace ScreenCaptureTool.FancyZones
                     string label = string.IsNullOrEmpty(app)
                         ? $"{i + 1}\n{dim}"
                         : $"{i + 1} [{app}]\n{dim}";
-                    g.DrawString(label, infoFont, Brushes.White,
-                        new RectangleF(zones[i].X, zones[i].Y, zones[i].Width, zones[i].Height), sf);
+                    Rectangle z = zones[i];
+                    RectangleF labelRect = new RectangleF(z.X, z.Y, z.Width, z.Height);
+                    if (layout.Kind == LayoutKind.Canvas)
+                    {
+                        Rectangle vis = Rectangle.Intersect(z, area);
+                        if (vis.Width > 0 && vis.Height > 0)
+                        {
+                            labelRect = new RectangleF(vis.X, vis.Y, vis.Width, vis.Height);
+                        }
+                    }
+                    g.DrawString(label, infoFont, Brushes.White, labelRect, sf);
                 }
             }
         }

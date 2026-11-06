@@ -17,15 +17,17 @@ namespace ScreenCaptureTool
         private const int HOTKEY_ID = 1;
         private const int CANCEL_HOTKEY_ID = 2;
         private const int STAMP_HOTKEY_ID = 3;
-        private const int FANCY_ZONES_EDITOR_HOTKEY_ID = 4;
+        private const int ONE_KEY_ADJUST_HOTKEY_ID = 4;
         private const uint MOD_NOREPEAT = 0x4000;
         private bool cancelHotkeyRegistered;
         private bool captureInProgress;
         private bool isExiting;
         private bool resourcesCleaned;
+        private bool oneKeyAdjustHotkeyRegistered;
         private ZoneStore zoneStore;
         private FancyZonesManager fancyZonesManager;
         private LayoutEditorForm? layoutEditorForm;
+        private ToolStripMenuItem oneKeyAdjustMenuItem;
 
         private TextBox txtFancyZonesHotkey;
         private ComboBox cmbFancyZonesActivationKey;
@@ -489,7 +491,12 @@ namespace ScreenCaptureTool
             trayMenu.Items.Add("立即截图 (F1)", null, (s, e) => StartCapture(false));
             trayMenu.Items.Add("印章截图 (F2)", null, (s, e) => StartCapture(true));
             trayMenu.Items.Add("区域布局编辑器", null, (s, e) => OpenLayoutEditor());
-            trayMenu.Items.Add("一键调整窗口", null, (s, e) => ApplyCurrentLayoutWindows());
+            oneKeyAdjustMenuItem = new ToolStripMenuItem("一键调整窗口")
+            {
+                Enabled = false
+            };
+            oneKeyAdjustMenuItem.Click += (s, e) => ApplyCurrentLayoutWindows();
+            trayMenu.Items.Add(oneKeyAdjustMenuItem);
             trayMenu.Items.Add("-");
             trayMenu.Items.Add("退出", null, (s, e) => ExitApplication());
 
@@ -532,12 +539,27 @@ namespace ScreenCaptureTool
                 MessageBox.Show($"无法注册印章热键 {settings.StampHotkey}，可能已被占用。");
             }
 
-            UnregisterHotKey(this.Handle, FANCY_ZONES_EDITOR_HOTKEY_ID);
-            bool zonesEditorSuccess = RegisterHotKey(this.Handle, FANCY_ZONES_EDITOR_HOTKEY_ID,
+            UpdateOneKeyAdjustHotkey(IsLayoutEditorOpen);
+        }
+
+        private bool IsLayoutEditorOpen => layoutEditorForm != null &&
+            !layoutEditorForm.IsDisposed && layoutEditorForm.Visible;
+
+        private void UpdateOneKeyAdjustHotkey(bool enabled)
+        {
+            if (!this.IsHandleCreated || this.IsDisposed) return;
+
+            UnregisterHotKey(this.Handle, ONE_KEY_ADJUST_HOTKEY_ID);
+            oneKeyAdjustHotkeyRegistered = false;
+            oneKeyAdjustMenuItem.Enabled = enabled;
+            if (!enabled) return;
+
+            oneKeyAdjustHotkeyRegistered = RegisterHotKey(this.Handle, ONE_KEY_ADJUST_HOTKEY_ID,
                 settings.FancyZonesEditorHotkeyModifiers | MOD_NOREPEAT,
                 settings.FancyZonesEditorHotkeyCode);
-            if (!zonesEditorSuccess)
+            if (!oneKeyAdjustHotkeyRegistered)
             {
+                oneKeyAdjustMenuItem.Enabled = false;
                 MessageBox.Show($"无法注册一键调整窗口快捷键 {settings.FancyZonesEditorHotkey}，可能已被占用。");
             }
         }
@@ -612,7 +634,7 @@ namespace ScreenCaptureTool
             {
                 StartCapture(true);
             }
-            if (m.Msg == 0x0312 && m.WParam.ToInt32() == FANCY_ZONES_EDITOR_HOTKEY_ID)
+            if (m.Msg == 0x0312 && m.WParam.ToInt32() == ONE_KEY_ADJUST_HOTKEY_ID)
             {
                 ApplyCurrentLayoutWindows();
             }
@@ -629,27 +651,32 @@ namespace ScreenCaptureTool
                     layoutEditorForm.WindowState = FormWindowState.Normal;
                 }
                 layoutEditorForm.Activate();
+                UpdateOneKeyAdjustHotkey(true);
                 return;
             }
 
             layoutEditorForm = new LayoutEditorForm(zoneStore, settings, fancyZonesManager);
-            layoutEditorForm.FormClosed += (s, e) => layoutEditorForm = null;
+            LayoutEditorForm editor = layoutEditorForm;
+            editor.FormClosed += (s, e) =>
+            {
+                if (ReferenceEquals(layoutEditorForm, editor))
+                {
+                    layoutEditorForm = null;
+                    UpdateOneKeyAdjustHotkey(false);
+                }
+            };
             layoutEditorForm.Show();
             layoutEditorForm.Activate();
+            UpdateOneKeyAdjustHotkey(true);
         }
 
         private void ApplyCurrentLayoutWindows()
         {
-            ZoneLayout? layout = (layoutEditorForm != null && !layoutEditorForm.IsDisposed)
-                ? layoutEditorForm.CurrentLayout
-                : zoneStore.ActiveLayout;
-            Screen targetScreen = (layoutEditorForm != null && !layoutEditorForm.IsDisposed && layoutEditorForm.Visible)
-                ? Screen.FromControl(layoutEditorForm)
-                : Screen.FromPoint(Cursor.Position);
-            IWin32Window? owner = (layoutEditorForm != null && !layoutEditorForm.IsDisposed && layoutEditorForm.Visible)
-                ? layoutEditorForm
-                : null;
-            fancyZonesManager.ApplyLayoutWindows(layout, targetScreen, owner);
+            if (!IsLayoutEditorOpen) return;
+            fancyZonesManager.ApplyLayoutWindows(
+                layoutEditorForm!.CurrentLayout,
+                Screen.FromControl(layoutEditorForm),
+                layoutEditorForm);
         }
 
         private void StartCapture(bool stampMode)
@@ -717,7 +744,7 @@ namespace ScreenCaptureTool
                     UnregisterHotKey(this.Handle, CANCEL_HOTKEY_ID);
                     cancelHotkeyRegistered = false;
                     UnregisterHotKey(this.Handle, STAMP_HOTKEY_ID);
-                    UnregisterHotKey(this.Handle, FANCY_ZONES_EDITOR_HOTKEY_ID);
+                    UnregisterHotKey(this.Handle, ONE_KEY_ADJUST_HOTKEY_ID);
                 }
                 catch
                 {

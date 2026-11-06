@@ -590,7 +590,7 @@ namespace ScreenCaptureTool.FancyZones
 
         // ── 吸附与一键调整窗口 ──
 
-        public void SnapWindow(IntPtr hwnd, Rectangle target)
+        public void SnapWindow(IntPtr hwnd, Rectangle target, bool bringToFront = false)
         {
             if (!NativeMethods.IsWindow(hwnd)) return;
 
@@ -611,10 +611,15 @@ namespace ScreenCaptureTool.FancyZones
                 target.Width + bLeft + bRight,
                 target.Height + bTop + bBottom);
 
-            uint flags = NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE;
-            NativeMethods.SetWindowPos(hwnd, IntPtr.Zero,
+            uint flags = NativeMethods.SWP_NOACTIVATE;
+            if (!bringToFront)
+            {
+                flags |= NativeMethods.SWP_NOZORDER;
+            }
+
+            NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOP,
                 adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, flags);
-            NativeMethods.SetWindowPos(hwnd, IntPtr.Zero,
+            NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOP,
                 adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, flags);
         }
 
@@ -680,11 +685,11 @@ namespace ScreenCaptureTool.FancyZones
 
             if (!needSelectionDialog)
             {
-                foreach (var item in candidatesPerZone)
+                foreach (var item in candidatesPerZone.OrderBy(c => c.ZoneIndex))
                 {
                     if (item.Windows.Count == 1)
                     {
-                        SnapWindow(item.Windows[0].Hwnd, item.ZoneRect);
+                        SnapWindow(item.Windows[0].Hwnd, item.ZoneRect, bringToFront: true);
                     }
                 }
                 return;
@@ -709,7 +714,7 @@ namespace ScreenCaptureTool.FancyZones
                     AutoScroll = true
                 };
 
-                var combos = new List<(Rectangle ZoneRect, ComboBox Combo)>();
+                var combos = new List<(int ZoneIndex, Rectangle ZoneRect, ComboBox Combo)>();
                 var usedCountByApp = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 int y = 6;
 
@@ -750,7 +755,7 @@ namespace ScreenCaptureTool.FancyZones
 
                     panel.Controls.Add(lbl);
                     panel.Controls.Add(cmb);
-                    combos.Add((item.ZoneRect, cmb));
+                    combos.Add((item.ZoneIndex, item.ZoneRect, cmb));
                     y += 34;
                 }
 
@@ -780,11 +785,11 @@ namespace ScreenCaptureTool.FancyZones
 
                 if (dlg.ShowDialog(owner) == DialogResult.OK)
                 {
-                    foreach (var (zoneRect, combo) in combos)
+                    foreach (var (zoneIndex, zoneRect, combo) in combos.OrderBy(c => c.ZoneIndex))
                     {
                         if (combo.SelectedItem is AppWindowInfo win && win.Hwnd != IntPtr.Zero)
                         {
-                            SnapWindow(win.Hwnd, zoneRect);
+                            SnapWindow(win.Hwnd, zoneRect, bringToFront: true);
                         }
                     }
                 }

@@ -12,7 +12,7 @@ namespace ScreenCaptureTool.FancyZones
         Canvas = 1
     }
 
-    /// <summary>画布布局中的单个区域，坐标为相对工作区的比例 (0~1)。</summary>
+    /// <summary>画布布局中的单个区域，坐标为相对工作区的比例；允许越出 0..1 范围。</summary>
     public sealed class ZoneRect
     {
         public double X { get; set; }
@@ -212,6 +212,14 @@ namespace ScreenCaptureTool.FancyZones
                 int top = workArea.Y + (int)Math.Round(f.Y * workArea.Height);
                 int right = workArea.X + (int)Math.Round((f.X + f.Width) * workArea.Width);
                 int bottom = workArea.Y + (int)Math.Round((f.Y + f.Height) * workArea.Height);
+
+                if (Kind == LayoutKind.Canvas)
+                {
+                    // Canvas rectangles are the exact user-defined snap bounds. Keep negative
+                    // and >1 ratios so zones can overlap and extend beyond the work area.
+                    result.Add(Rectangle.FromLTRB(left, top, Math.Max(left + 1, right), Math.Max(top + 1, bottom)));
+                    continue;
+                }
 
                 // Keep zones flush with the work-area perimeter; apply spacing only on
                 // interior boundaries so the editor outline and snapped window coincide.
