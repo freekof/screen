@@ -237,17 +237,108 @@ namespace ScreenCaptureTool.FancyZones
                     Rectangle zr = realZones[i];
                     string currentApp = layout.GetZoneApp(i);
 
-                    var lbl = new Label
+                    if (layout.Kind == LayoutKind.Canvas && zoneIdx < layout.CanvasZones.Count)
                     {
-                        Text = $"区域 {i + 1}:  {zr.Width} × {zr.Height}",
-                        Location = new Point(8, y + 4),
-                        Size = new Size(155, 22)
-                    };
+                        var lbl = new Label
+                        {
+                            Text = $"区域 {i + 1}:",
+                            Location = new Point(6, y + 4),
+                            Size = new Size(50, 22)
+                        };
+
+                        var txtW = new TextBox
+                        {
+                            Text = zr.Width.ToString(),
+                            Location = new Point(58, y + 1),
+                            Size = new Size(46, 22),
+                            TextAlign = HorizontalAlignment.Center
+                        };
+
+                        var lblMul = new Label
+                        {
+                            Text = "×",
+                            Location = new Point(105, y + 4),
+                            Size = new Size(14, 22),
+                            TextAlign = ContentAlignment.MiddleCenter
+                        };
+
+                        var txtH = new TextBox
+                        {
+                            Text = zr.Height.ToString(),
+                            Location = new Point(120, y + 1),
+                            Size = new Size(46, 22),
+                            TextAlign = HorizontalAlignment.Center
+                        };
+
+                        void CommitCanvasZoneSize()
+                        {
+                            if (zoneIdx >= layout.CanvasZones.Count) return;
+                            var cz = layout.CanvasZones[zoneIdx];
+                            int totalW = Math.Max(1, monitorWorkArea.Width);
+                            int totalH = Math.Max(1, monitorWorkArea.Height);
+                            int curW = Math.Max(40, (int)Math.Round(cz.Width * totalW));
+                            int curH = Math.Max(40, (int)Math.Round(cz.Height * totalH));
+
+                            int newW = int.TryParse(txtW.Text.Trim(), out int pw) ? pw : curW;
+                            int newH = int.TryParse(txtH.Text.Trim(), out int ph) ? ph : curH;
+                            newW = Math.Clamp(newW, 40, totalW * 3);
+                            newH = Math.Clamp(newH, 40, totalH * 3);
+
+                            int curX = (int)Math.Round(cz.X * totalW);
+                            int curY = (int)Math.Round(cz.Y * totalH);
+                            curX = Math.Clamp(curX, -newW + 40, totalW - 40);
+                            curY = Math.Clamp(curY, 0, totalH - 40);
+
+                            cz.X = curX / (double)totalW;
+                            cz.Y = curY / (double)totalH;
+                            cz.Width = newW / (double)totalW;
+                            cz.Height = newH / (double)totalH;
+
+                            txtW.Text = newW.ToString();
+                            txtH.Text = newH.ToString();
+                            store.AddOrUpdate(layout);
+                            previewPanel.Invalidate();
+                        }
+
+                        txtW.Leave += (s, e) => CommitCanvasZoneSize();
+                        txtH.Leave += (s, e) => CommitCanvasZoneSize();
+                        txtW.KeyDown += (s, e) =>
+                        {
+                            if (e.KeyCode == Keys.Enter)
+                            {
+                                e.SuppressKeyPress = true;
+                                CommitCanvasZoneSize();
+                            }
+                        };
+                        txtH.KeyDown += (s, e) =>
+                        {
+                            if (e.KeyCode == Keys.Enter)
+                            {
+                                e.SuppressKeyPress = true;
+                                CommitCanvasZoneSize();
+                            }
+                        };
+
+                        zoneAppsPanel.Controls.Add(lbl);
+                        zoneAppsPanel.Controls.Add(txtW);
+                        zoneAppsPanel.Controls.Add(lblMul);
+                        zoneAppsPanel.Controls.Add(txtH);
+                    }
+                    else
+                    {
+                        var lbl = new Label
+                        {
+                            Text = $"区域 {i + 1}:  {zr.Width} × {zr.Height}",
+                            Location = new Point(8, y + 4),
+                            Size = new Size(155, 22)
+                        };
+                        zoneAppsPanel.Controls.Add(lbl);
+                    }
 
                     var cmb = new ComboBox
                     {
-                        Location = new Point(168, y),
-                        Size = new Size(220, 24),
+                        Location = new Point(172, y),
+                        Size = new Size(216, 24),
                         DropDownStyle = ComboBoxStyle.DropDownList
                     };
 
@@ -267,7 +358,6 @@ namespace ScreenCaptureTool.FancyZones
                         previewPanel.Invalidate();
                     };
 
-                    zoneAppsPanel.Controls.Add(lbl);
                     zoneAppsPanel.Controls.Add(cmb);
                     y += 30;
                 }

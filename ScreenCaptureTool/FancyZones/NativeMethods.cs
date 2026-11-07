@@ -171,14 +171,21 @@ namespace ScreenCaptureTool.FancyZones
         public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
             int X, int Y, int cx, int cy, uint uFlags);
 
+        public const uint SWP_NOSIZE       = 0x0001;
+        public const uint SWP_NOMOVE       = 0x0002;
         public const uint SWP_NOZORDER     = 0x0004;
         public const uint SWP_NOACTIVATE   = 0x0010;
+        public const uint SWP_SHOWWINDOW   = 0x0040;
         public const uint SWP_NOOWNERZORDER = 0x0200;
         public const uint SWP_ASYNCWINDOWPOS = 0x4000;
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool BringWindowToTop(IntPtr hWnd);
 
         public const int SW_RESTORE = 9;
 
@@ -207,13 +214,24 @@ namespace ScreenCaptureTool.FancyZones
         // ── DWM ──
 
         public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+        public const int DWMWA_CLOAKED = 14;
 
         [DllImport("dwmapi.dll")]
         public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute,
             out RECT pvAttribute, int cbAttribute);
 
         [DllImport("dwmapi.dll")]
+        public static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute,
+            out int pvAttribute, int cbAttribute);
+
+        [DllImport("dwmapi.dll")]
         public static extern int DwmFlush();
+
+        public static bool IsWindowCloaked(IntPtr hWnd)
+        {
+            int hr = DwmGetWindowAttribute(hWnd, DWMWA_CLOAKED, out int cloaked, sizeof(int));
+            return hr == 0 && cloaked != 0;
+        }
 
         /// <summary>
         /// 获取窗口的不可见边框偏移。
@@ -222,14 +240,15 @@ namespace ScreenCaptureTool.FancyZones
         public static bool GetInvisibleBorders(IntPtr hWnd, out int left, out int top, out int right, out int bottom)
         {
             left = top = right = bottom = 0;
+            if (IsIconic(hWnd)) return false;
             if (!GetWindowRect(hWnd, out RECT wr)) return false;
             int hr = DwmGetWindowAttribute(hWnd, DWMWA_EXTENDED_FRAME_BOUNDS,
                 out RECT fr, Marshal.SizeOf<RECT>());
             if (hr != 0) return false;
-            left   = fr.Left   - wr.Left;
-            top    = fr.Top    - wr.Top;
-            right  = wr.Right  - fr.Right;
-            bottom = wr.Bottom - fr.Bottom;
+            left   = Math.Clamp(fr.Left   - wr.Left,   0, 40);
+            top    = Math.Clamp(fr.Top    - wr.Top,    0, 40);
+            right  = Math.Clamp(wr.Right  - fr.Right,  0, 40);
+            bottom = Math.Clamp(wr.Bottom - fr.Bottom, 0, 40);
             return true;
         }
 

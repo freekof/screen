@@ -22,6 +22,8 @@ namespace ScreenCaptureTool.FancyZones
         private readonly List<Rectangle> zoneRects = new List<Rectangle>();
         private readonly List<string> zoneApps = new List<string>();
         private readonly List<ComboBox> appCombos = new List<ComboBox>();
+        private readonly List<TextBox> widthBoxes = new List<TextBox>();
+        private readonly List<TextBox> heightBoxes = new List<TextBox>();
         private bool updatingCombos;
 
         private int selectedIndex = -1;
@@ -175,7 +177,7 @@ namespace ScreenCaptureTool.FancyZones
 
             var lblHint = new Label
             {
-                Text = "点击=选中 | 拖动内部=移动 | 拖边缘/角点=缩放 | 空白处拖拽=新建 | Del=删除 | Enter=保存 | ESC=取消",
+                Text = "点击=选中 | 方向键(Shift×10)=移动位置 | 文本框=输入宽高 | 拖动=移动/缩放 | 空白拖拽=新建 | Del=删除 | Enter=保存 | ESC=取消",
                 ForeColor = Color.LightGray,
                 AutoSize = true,
                 Location = new Point(474, 14)
@@ -257,15 +259,72 @@ namespace ScreenCaptureTool.FancyZones
             while (appCombos.Count > displayRects.Count)
             {
                 int last = appCombos.Count - 1;
-                ComboBox old = appCombos[last];
+                ComboBox oldCmb = appCombos[last];
                 appCombos.RemoveAt(last);
-                Controls.Remove(old);
-                old.Dispose();
+                Controls.Remove(oldCmb);
+                oldCmb.Dispose();
+
+                TextBox oldW = widthBoxes[last];
+                widthBoxes.RemoveAt(last);
+                Controls.Remove(oldW);
+                oldW.Dispose();
+
+                TextBox oldH = heightBoxes[last];
+                heightBoxes.RemoveAt(last);
+                Controls.Remove(oldH);
+                oldH.Dispose();
             }
 
             while (appCombos.Count < displayRects.Count)
             {
                 int idx = appCombos.Count;
+
+                var txtW = new TextBox
+                {
+                    Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
+                    TextAlign = HorizontalAlignment.Center,
+                    TabStop = false,
+                    Tag = idx
+                };
+                txtW.Enter += (s, e) =>
+                {
+                    if (s is TextBox tb && tb.Tag is int zIdx)
+                    {
+                        selectedIndex = zIdx;
+                        Invalidate();
+                    }
+                };
+                txtW.Leave += (s, e) =>
+                {
+                    if (s is TextBox tb && tb.Tag is int zIdx)
+                    {
+                        ApplyZoneSizeFromInputs(zIdx);
+                    }
+                };
+
+                var txtH = new TextBox
+                {
+                    Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
+                    TextAlign = HorizontalAlignment.Center,
+                    TabStop = false,
+                    Tag = idx
+                };
+                txtH.Enter += (s, e) =>
+                {
+                    if (s is TextBox tb && tb.Tag is int zIdx)
+                    {
+                        selectedIndex = zIdx;
+                        Invalidate();
+                    }
+                };
+                txtH.Leave += (s, e) =>
+                {
+                    if (s is TextBox tb && tb.Tag is int zIdx)
+                    {
+                        ApplyZoneSizeFromInputs(zIdx);
+                    }
+                };
+
                 var cmb = new ComboBox
                 {
                     DropDownStyle = ComboBoxStyle.DropDownList,
@@ -277,6 +336,7 @@ namespace ScreenCaptureTool.FancyZones
                 {
                     if (s is ComboBox cb && cb.Tag is int zIdx && zIdx >= 0 && zIdx < zoneApps.Count)
                     {
+                        selectedIndex = zIdx;
                         PopulateAppCombo(cb, zoneApps[zIdx]);
                     }
                 };
@@ -291,33 +351,116 @@ namespace ScreenCaptureTool.FancyZones
                         Invalidate();
                     }
                 };
+
+                widthBoxes.Add(txtW);
+                heightBoxes.Add(txtH);
                 appCombos.Add(cmb);
+                Controls.Add(txtW);
+                Controls.Add(txtH);
                 Controls.Add(cmb);
+                txtW.BringToFront();
+                txtH.BringToFront();
                 cmb.BringToFront();
             }
 
             for (int i = 0; i < displayRects.Count; i++)
             {
+                TextBox txtW = widthBoxes[i];
+                TextBox txtH = heightBoxes[i];
                 ComboBox cmb = appCombos[i];
+                txtW.Tag = i;
+                txtH.Tag = i;
                 cmb.Tag = i;
+
+                Rectangle r = displayRects[i];
+                if (!txtW.Focused) txtW.Text = r.Width.ToString();
+                if (!txtH.Focused) txtH.Text = r.Height.ToString();
+
                 string app = i < zoneApps.Count ? zoneApps[i] : "";
                 PopulateAppCombo(cmb, app);
 
-                Rectangle r = displayRects[i];
                 Rectangle vis = Rectangle.Intersect(r, localWorkArea);
+                bool showSize = (dragMode == DragMode.None) && vis.Width >= 116 && vis.Height >= 34;
+                bool showCombo = (dragMode == DragMode.None) && vis.Width >= 188 && vis.Height >= 34;
 
-                if (vis.Width >= 140 && vis.Height >= 36)
+                if (showSize)
                 {
-                    int comboX = vis.X + 94;
+                    txtW.Bounds = new Rectangle(vis.X + 6, vis.Y + 4, 46, 22);
+                    txtH.Bounds = new Rectangle(vis.X + 66, vis.Y + 4, 46, 22);
+                    txtW.Visible = true;
+                    txtH.Visible = true;
+                }
+                else
+                {
+                    txtW.Visible = false;
+                    txtH.Visible = false;
+                }
+
+                if (showCombo)
+                {
+                    int comboX = vis.X + 116;
                     int comboY = vis.Y + 4;
-                    int comboW = Math.Clamp(vis.Width - 102, 70, 165);
+                    int comboW = Math.Clamp(vis.Width - 122, 65, 165);
                     cmb.Bounds = new Rectangle(comboX, comboY, comboW, 22);
-                    cmb.Visible = (dragMode == DragMode.None);
+                    cmb.Visible = true;
                 }
                 else
                 {
                     cmb.Visible = false;
                 }
+            }
+        }
+
+        private void ApplyZoneSizeFromInputs(int zIdx)
+        {
+            if (updatingCombos || zIdx < 0 || zIdx >= zoneRects.Count ||
+                zIdx >= widthBoxes.Count || zIdx >= heightBoxes.Count)
+            {
+                return;
+            }
+
+            Rectangle current = zoneRects[zIdx];
+            int newW = current.Width;
+            int newH = current.Height;
+
+            if (int.TryParse(widthBoxes[zIdx].Text.Trim(), out int parsedW))
+            {
+                newW = parsedW;
+            }
+            if (int.TryParse(heightBoxes[zIdx].Text.Trim(), out int parsedH))
+            {
+                newH = parsedH;
+            }
+
+            Rectangle updated = ClampZoneRect(new Rectangle(current.X, current.Y, newW, newH));
+            zoneRects[zIdx] = updated;
+            widthBoxes[zIdx].Text = updated.Width.ToString();
+            heightBoxes[zIdx].Text = updated.Height.ToString();
+            SyncModelFromZones();
+            SyncAppCombos();
+            Invalidate();
+        }
+
+        private void CommitAllSizeInputs()
+        {
+            for (int i = 0; i < zoneRects.Count && i < widthBoxes.Count && i < heightBoxes.Count; i++)
+            {
+                Rectangle current = zoneRects[i];
+                int newW = current.Width;
+                int newH = current.Height;
+                if (int.TryParse(widthBoxes[i].Text.Trim(), out int parsedW)) newW = parsedW;
+                if (int.TryParse(heightBoxes[i].Text.Trim(), out int parsedH)) newH = parsedH;
+                zoneRects[i] = ClampZoneRect(new Rectangle(current.X, current.Y, newW, newH));
+            }
+        }
+
+        private void SetOverlayControlsVisible(bool visible)
+        {
+            for (int i = 0; i < appCombos.Count; i++)
+            {
+                widthBoxes[i].Visible = visible;
+                heightBoxes[i].Visible = visible;
+                appCombos[i].Visible = visible;
             }
         }
 
@@ -359,7 +502,8 @@ namespace ScreenCaptureTool.FancyZones
 
             int minX = localWorkArea.Left - w + MinZoneSize;
             int maxX = localWorkArea.Right - MinZoneSize;
-            int minY = localWorkArea.Top - h + MinZoneSize;
+            // 限制区域不能高出屏幕（顶部不能超出屏幕上边界），左、右、下可以超出屏幕
+            int minY = Math.Max(0, localWorkArea.Top);
             int maxY = localWorkArea.Bottom - MinZoneSize;
 
             int x = Math.Clamp(r.X, minX, maxX);
@@ -435,6 +579,7 @@ namespace ScreenCaptureTool.FancyZones
 
         private void SaveAndClose()
         {
+            CommitAllSizeInputs();
             SyncModelFromZones();
             DialogResult = DialogResult.OK;
             Close();
@@ -448,21 +593,75 @@ namespace ScreenCaptureTool.FancyZones
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (keyData == Keys.Enter)
+            Keys keyCode = keyData & Keys.KeyCode;
+
+            if (keyCode == Keys.Enter)
             {
+                if (ActiveControl is TextBox tbEnter && tbEnter.Tag is int enterIdx)
+                {
+                    ApplyZoneSizeFromInputs(enterIdx);
+                    ActiveControl = null;
+                    return true;
+                }
                 SaveAndClose();
                 return true;
             }
-            if (keyData == Keys.Escape)
+            if (keyCode == Keys.Escape)
             {
+                if (ActiveControl is TextBox)
+                {
+                    ActiveControl = null;
+                    SyncAppCombos();
+                    return true;
+                }
                 CancelAndClose();
                 return true;
             }
-            if (keyData == Keys.Delete)
+            if (keyCode == Keys.Delete && ActiveControl is not TextBox)
             {
                 DeleteSelectedZone();
                 return true;
             }
+
+            if (keyCode == Keys.Left || keyCode == Keys.Right || keyCode == Keys.Up || keyCode == Keys.Down)
+            {
+                if (ActiveControl is TextBox && (keyCode == Keys.Left || keyCode == Keys.Right))
+                {
+                    return base.ProcessCmdKey(ref msg, keyData);
+                }
+
+                if (selectedIndex >= 0 && selectedIndex < zoneRects.Count)
+                {
+                    if (ActiveControl is TextBox tbMove && tbMove.Tag is int moveIdx)
+                    {
+                        ApplyZoneSizeFromInputs(moveIdx);
+                        ActiveControl = null;
+                    }
+
+                    int step = (keyData & Keys.Shift) != 0 ? 10 : 1;
+                    int dx = keyCode switch
+                    {
+                        Keys.Left => -step,
+                        Keys.Right => step,
+                        _ => 0
+                    };
+                    int dy = keyCode switch
+                    {
+                        Keys.Up => -step,
+                        Keys.Down => step,
+                        _ => 0
+                    };
+
+                    Rectangle cur = zoneRects[selectedIndex];
+                    Rectangle moved = new Rectangle(cur.X + dx, cur.Y + dy, cur.Width, cur.Height);
+                    zoneRects[selectedIndex] = ClampZoneRect(moved);
+                    SyncModelFromZones();
+                    SyncAppCombos();
+                    Invalidate();
+                    return true;
+                }
+            }
+
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
@@ -473,12 +672,12 @@ namespace ScreenCaptureTool.FancyZones
                 CancelAndClose();
                 e.Handled = true;
             }
-            else if (e.KeyCode == Keys.Enter)
+            else if (e.KeyCode == Keys.Enter && ActiveControl is not TextBox)
             {
                 SaveAndClose();
                 e.Handled = true;
             }
-            else if (e.KeyCode == Keys.Delete)
+            else if (e.KeyCode == Keys.Delete && ActiveControl is not TextBox)
             {
                 DeleteSelectedZone();
                 e.Handled = true;
@@ -493,6 +692,12 @@ namespace ScreenCaptureTool.FancyZones
             base.OnMouseDown(e);
             if (e.Button != MouseButtons.Left) return;
 
+            if (ActiveControl is TextBox tb && tb.Tag is int editIdx)
+            {
+                ApplyZoneSizeFromInputs(editIdx);
+            }
+            ActiveControl = null;
+
             Point pt = e.Location;
             List<Rectangle> displayRects = GetDisplayZoneRects();
 
@@ -506,6 +711,7 @@ namespace ScreenCaptureTool.FancyZones
                     resizeDir = dir;
                     dragStartPt = pt;
                     dragStartRect = zoneRects[selectedIndex];
+                    SetOverlayControlsVisible(false);
                     return;
                 }
             }
@@ -527,6 +733,7 @@ namespace ScreenCaptureTool.FancyZones
                 }
                 dragStartPt = pt;
                 dragStartRect = zoneRects[selectedIndex];
+                SetOverlayControlsVisible(false);
                 Invalidate();
                 return;
             }
@@ -536,6 +743,7 @@ namespace ScreenCaptureTool.FancyZones
             dragMode = DragMode.Create;
             dragStartPt = ClampPointToWorkArea(pt);
             createPreviewRect = Rectangle.Empty;
+            SetOverlayControlsVisible(false);
             Invalidate();
         }
 
@@ -644,7 +852,7 @@ namespace ScreenCaptureTool.FancyZones
             if ((dir & ResizeDir.Top) != 0)
             {
                 int maxTop = Math.Min(bottom - MinZoneSize, localWorkArea.Bottom - MinZoneSize);
-                int minTop = localWorkArea.Top - localWorkArea.Height * 2;
+                int minTop = Math.Max(0, localWorkArea.Top);
                 top = Math.Clamp(top + dy, minTop, maxTop);
             }
             if ((dir & ResizeDir.Bottom) != 0)
@@ -839,8 +1047,15 @@ namespace ScreenCaptureTool.FancyZones
                     RectangleF labelRect = new RectangleF(targetTextRect.X, targetTextRect.Y, targetTextRect.Width, targetTextRect.Height);
                     g.DrawString(label, indexFont, Brushes.White, labelRect, centerFormat);
 
-                    string dimText = $"{r.Width} × {r.Height}";
-                    g.DrawString(dimText, sizeFont, Brushes.WhiteSmoke, targetTextRect.X + 6, targetTextRect.Y + 6);
+                    if (i < widthBoxes.Count && widthBoxes[i].Visible)
+                    {
+                        g.DrawString("×", sizeFont, Brushes.WhiteSmoke, targetTextRect.X + 54, targetTextRect.Y + 6);
+                    }
+                    else
+                    {
+                        string dimText = $"{r.Width} × {r.Height}";
+                        g.DrawString(dimText, sizeFont, Brushes.WhiteSmoke, targetTextRect.X + 6, targetTextRect.Y + 6);
+                    }
                 }
 
                 // 为选中区域绘制 8 个控制手柄

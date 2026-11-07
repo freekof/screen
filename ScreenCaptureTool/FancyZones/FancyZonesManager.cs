@@ -594,14 +594,18 @@ namespace ScreenCaptureTool.FancyZones
         {
             if (!NativeMethods.IsWindow(hwnd)) return;
 
-            if (!originalSizes.ContainsKey(hwnd) && NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT originalRect))
-            {
-                originalSizes[hwnd] = originalRect.ToRectangle();
-            }
-
             if (NativeMethods.IsZoomed(hwnd) || NativeMethods.IsIconic(hwnd))
             {
                 NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+            }
+
+            if (!originalSizes.ContainsKey(hwnd) && NativeMethods.GetWindowRect(hwnd, out NativeMethods.RECT originalRect))
+            {
+                Rectangle orig = originalRect.ToRectangle();
+                if (orig.Width >= 50 && orig.Height >= 50)
+                {
+                    originalSizes[hwnd] = orig;
+                }
             }
 
             NativeMethods.GetInvisibleBorders(hwnd, out int bLeft, out int bTop, out int bRight, out int bBottom);
@@ -611,16 +615,24 @@ namespace ScreenCaptureTool.FancyZones
                 target.Width + bLeft + bRight,
                 target.Height + bTop + bBottom);
 
-            uint flags = NativeMethods.SWP_NOACTIVATE;
-            if (!bringToFront)
+            if (bringToFront)
             {
-                flags |= NativeMethods.SWP_NOZORDER;
+                // 先通过 HWND_TOPMOST -> HWND_NOTOPMOST 突破前台窗口焦点限制，确保被遮挡窗口可靠提到最前
+                uint frontFlags = NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW;
+                NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOPMOST,
+                    adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, frontFlags);
+                NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_NOTOPMOST,
+                    adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, frontFlags);
+                NativeMethods.BringWindowToTop(hwnd);
             }
-
-            NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOP,
-                adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, flags);
-            NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOP,
-                adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, flags);
+            else
+            {
+                uint flags = NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE;
+                NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOP,
+                    adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, flags);
+                NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOP,
+                    adjusted.X, adjusted.Y, adjusted.Width, adjusted.Height, flags);
+            }
         }
 
         /// <summary>
@@ -822,6 +834,8 @@ namespace ScreenCaptureTool.FancyZones
                     return true;
                 if ((exStyle & NativeMethods.WS_EX_TOOLWINDOW) != 0 || (exStyle & NativeMethods.WS_EX_NOACTIVATE) != 0)
                     return true;
+                if (NativeMethods.IsWindowCloaked(hWnd))
+                    return true;
 
                 string title = NativeMethods.GetWindowTitle(hWnd).Trim();
                 if (string.IsNullOrEmpty(title))
@@ -832,7 +846,15 @@ namespace ScreenCaptureTool.FancyZones
                     cls.Equals("WorkerW", StringComparison.OrdinalIgnoreCase) ||
                     cls.Equals("Shell_TrayWnd", StringComparison.OrdinalIgnoreCase) ||
                     cls.Equals("SecondaryTrayWnd", StringComparison.OrdinalIgnoreCase) ||
-                    cls.Equals("Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase))
+                    cls.Equals("Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase) ||
+                    cls.Equals("IME", StringComparison.OrdinalIgnoreCase) ||
+                    cls.Equals("MSCTFIME UI", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                NativeMethods.GetWindowRect(hWnd, out NativeMethods.RECT wr);
+                if (!NativeMethods.IsIconic(hWnd) && (wr.Width < 50 || wr.Height < 50))
                 {
                     return true;
                 }
@@ -858,7 +880,6 @@ namespace ScreenCaptureTool.FancyZones
                     return true;
                 }
 
-                NativeMethods.GetWindowRect(hWnd, out NativeMethods.RECT wr);
                 list.Add(new AppWindowInfo
                 {
                     Hwnd = hWnd,
