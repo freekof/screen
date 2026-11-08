@@ -168,7 +168,7 @@ namespace ScreenCaptureTool
             txtMarkerBorder = new TextBox { Text = settings.MarkerBorderThickness.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
             y += rowH;
 
-            lblMarkerAlpha = new Label { Text = "标记框透明度 (20-200):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            lblMarkerAlpha = new Label { Text = "标记框透明度 (10-100)%:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
             txtMarkerAlpha = new TextBox { Text = settings.MarkerFillAlpha.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
             y += rowH + 6;
 
@@ -269,7 +269,7 @@ namespace ScreenCaptureTool
                 if (!TryReadInt("初始透明度", txtOpacity, 10, 100, out int opacity)) return;
                 if (!TryReadInt("边框大小", txtBorder, 0, 20, out int border)) return;
                 if (!TryReadInt("标记框粗细", txtMarkerBorder, 1, 10, out int markerBorder)) return;
-                if (!TryReadInt("标记框透明度", txtMarkerAlpha, 20, 200, out int markerAlpha)) return;
+                if (!TryReadInt("标记框透明度", txtMarkerAlpha, 10, 100, out int markerAlpha)) return;
                 if (!TryReadInt("放大镜大小", txtMagnifierSize, 80, 260, out int magSize)) return;
                 if (!TryReadInt("放大倍数", txtMagnifierZoom, 2, 15, out int magZoom)) return;
                 if (!TryReadInt("放大镜文字大小", txtMagnifierFont, 8, 20, out int magFont)) return;

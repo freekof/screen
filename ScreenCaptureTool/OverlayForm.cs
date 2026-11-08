@@ -27,6 +27,7 @@ namespace ScreenCaptureTool
         private MarkerOverlayForm markerOverlay;
         private readonly bool stampMode;
         private readonly List<MatchResultForm> resultMarkerForms = new List<MatchResultForm>();
+        private Bitmap? activeCroppedImage;
         private int markerCount = 0;
         private List<Rectangle> markerRects = new List<Rectangle>();
         private Mat activeScreenHsv;
@@ -412,40 +413,53 @@ namespace ScreenCaptureTool
                                   trimRect.Width != templateGray.Width || trimRect.Height != templateGray.Height;
                 if (wasTrimmed)
                 {
-                    int count = MatchWithTemplateCore(screenGray, trimmedTemplate, threshold, trimRect);
-                    if (ReachedTargetMatchCount() || count >= settings.MaxMatchResults)
+                    using (Bitmap cropped = CropBitmap(image, trimRect))
                     {
-                        return count;
-                    }
+                        activeCroppedImage = cropped;
+                        try
+                        {
+                            int count = MatchWithTemplateCore(screenGray, trimmedTemplate, threshold);
+                            if (ReachedTargetMatchCount() || count >= settings.MaxMatchResults)
+                            {
+                                return count;
+                            }
 
-                    // Trimmed match had too few results: try one exact-scale pass with the full template.
-                    return count + MatchWithTemplateAdaptive(screenGray, templateGray, threshold,
-                        new Rectangle(0, 0, templateGray.Width, templateGray.Height), 1.0);
+                            // Trimmed match had too few results: try one exact-scale pass with the full template.
+                            activeCroppedImage = null;
+                            return count + MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
+                        }
+                        finally
+                        {
+                            activeCroppedImage = null;
+                        }
+                    }
                 }
 
-                return MatchWithTemplateCore(screenGray, templateGray, threshold,
-                    new Rectangle(0, 0, templateGray.Width, templateGray.Height));
+                activeCroppedImage = null;
+                return MatchWithTemplateCore(screenGray, templateGray, threshold);
             }
         }
 
-        private Rectangle MapMatchToSourceImage(Rectangle matchRect, Rectangle sourceCrop, double scale)
+        private static Bitmap CropBitmap(Bitmap src, Rectangle crop)
         {
-            scale = Math.Max(0.01, scale);
-            int x = matchRect.X - (int)Math.Round(sourceCrop.X * scale);
-            int y = matchRect.Y - (int)Math.Round(sourceCrop.Y * scale);
-            int width = Math.Max(1, (int)Math.Round(image.Width * scale));
-            int height = Math.Max(1, (int)Math.Round(image.Height * scale));
-            return new Rectangle(x, y, width, height);
+            crop.Intersect(new Rectangle(0, 0, src.Width, src.Height));
+            if (crop.Width <= 0 || crop.Height <= 0) return (Bitmap)src.Clone();
+            Bitmap dst = new Bitmap(crop.Width, crop.Height, PixelFormat.Format32bppArgb);
+            using (Graphics g = Graphics.FromImage(dst))
+            {
+                g.DrawImage(src, new Rectangle(0, 0, crop.Width, crop.Height), crop, GraphicsUnit.Pixel);
+            }
+            return dst;
         }
 
-        private int MatchWithTemplateCore(Mat screenGray, Mat templateGray, double threshold, Rectangle sourceCrop)
+        private int MatchWithTemplateCore(Mat screenGray, Mat templateGray, double threshold)
         {
             if (screenGray.Width < templateGray.Width || screenGray.Height < templateGray.Height)
             {
                 return 0;
             }
 
-            int totalCount = MatchWithTemplateAdaptive(screenGray, templateGray, threshold, sourceCrop, 1.0);
+            int totalCount = MatchWithTemplateAdaptive(screenGray, templateGray, threshold);
 
             if (ReachedTargetMatchCount() || totalCount >= settings.MaxMatchResults)
             {
@@ -478,7 +492,7 @@ namespace ScreenCaptureTool
                 using (Mat scaledTemplate = new Mat())
                 {
                     Cv2.Resize(templateGray, scaledTemplate, new OpenCvSharp.Size(targetW, targetH), 0, 0, InterpolationFlags.Linear);
-                    int scaleCount = MatchWithTemplateCCoeff(screenGray, scaledTemplate, relaxed, sourceCrop, scales[i]);
+                    int scaleCount = MatchWithTemplateCCoeff(screenGray, scaledTemplate, relaxed);
                     totalCount += scaleCount;
                 }
             }
@@ -540,26 +554,24 @@ namespace ScreenCaptureTool
             return cropped.Clone();
         }
 
-        private int MatchWithTemplateAdaptive(Mat screenGray, Mat templateGray, double threshold,
-            Rectangle sourceCrop, double scale)
+        private int MatchWithTemplateAdaptive(Mat screenGray, Mat templateGray, double threshold)
         {
             int totalCount = 0;
             bool lowVariance = IsLowVariance(templateGray);
             if (!lowVariance)
             {
-                totalCount += MatchWithTemplateCCoeff(screenGray, templateGray, threshold, sourceCrop, scale);
+                totalCount += MatchWithTemplateCCoeff(screenGray, templateGray, threshold);
             }
 
             if (totalCount == 0)
             {
-                totalCount += MatchWithTemplateByEdges(screenGray, templateGray, threshold, sourceCrop, scale);
+                totalCount += MatchWithTemplateByEdges(screenGray, templateGray, threshold);
             }
 
             return totalCount;
         }
 
-        private int MatchWithTemplateByEdges(Mat screenGray, Mat templateGray, double threshold,
-            Rectangle sourceCrop, double scale)
+        private int MatchWithTemplateByEdges(Mat screenGray, Mat templateGray, double threshold)
         {
             if (ReachedTargetMatchCount())
             {
@@ -579,12 +591,11 @@ namespace ScreenCaptureTool
                 }
 
                 double edgeThreshold = Math.Max(0.4, threshold - 0.12);
-                return MatchWithTemplateCCoeff(screenEdges, templateEdges, edgeThreshold, sourceCrop, scale);
+                return MatchWithTemplateCCoeff(screenEdges, templateEdges, edgeThreshold);
             }
         }
 
-        private int MatchWithTemplateCCoeff(Mat screenGray, Mat templateGray, double threshold,
-            Rectangle sourceCrop, double scale)
+        private int MatchWithTemplateCCoeff(Mat screenGray, Mat templateGray, double threshold)
         {
             if (ReachedTargetMatchCount())
             {
@@ -611,15 +622,14 @@ namespace ScreenCaptureTool
 
                     if (maxVal >= threshold)
                     {
-                        Rectangle matchRect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
-                        Rectangle imageRect = MapMatchToSourceImage(matchRect, sourceCrop, scale);
-                        if (!IsCaptureRegion(imageRect) && !IsOverlapping(imageRect) && PassesColorValidation(imageRect))
+                        Rectangle rect = new Rectangle(maxLoc.X, maxLoc.Y, templateGray.Width, templateGray.Height);
+                        if (!IsCaptureRegion(rect) && !IsOverlapping(rect) && PassesColorValidation(rect))
                         {
-                            int markerNo = AddNumberedMarker(imageRect);
+                            int markerNo = AddNumberedMarker(rect);
                             if (markerNo > 0)
                             {
                                 count++;
-                                LogMatch("Template_CCoeff", maxVal, imageRect, true, markerNo);
+                                LogMatch("Template_CCoeff", maxVal, rect, true, markerNo);
                             }
                         }
                         // 清除整个模板大小的矩形区域，防止 1px 偏移重复匹配
@@ -788,8 +798,9 @@ namespace ScreenCaptureTool
             markerCount++;
             if (!stampMode)
             {
-                // F1 启动模式：完整显示整张原图，生成独立可拖动、可缩放的标记浮窗
-                var resultForm = new MatchResultForm(image, rect, settings, currentMatchColor);
+                // F1 启动模式：生成独立可拖动、可缩放的标记浮窗，显示去除白边后的紧凑前景图像
+                Bitmap displayImg = activeCroppedImage ?? image;
+                var resultForm = new MatchResultForm(displayImg, rect, settings, currentMatchColor);
                 resultMarkerForms.Add(resultForm);
                 resultForm.Show();
             }
@@ -909,6 +920,8 @@ namespace ScreenCaptureTool
             {
                 CloseAllMarkers();
                 ClearColorValidation();
+                activeCroppedImage?.Dispose();
+                activeCroppedImage = null;
                 image?.Dispose();
             }
             lock (OpenSync)
@@ -1030,14 +1043,14 @@ namespace ScreenCaptureTool
             this.BackColor = Color.Lime;
             this.TransparencyKey = Color.Lime;
             this.DoubleBuffered = true;
-            this.Opacity = Math.Clamp(settings.MarkerFillAlpha / 200.0, 0.10, 1.00);
+            this.Opacity = Math.Clamp(settings.MarkerFillAlpha / 100.0, 0.10, 1.00);
             this.ContextMenuStrip = new ContextMenuStrip();
         }
 
         public void UpdateSettings(Settings s)
         {
             this.settings = s;
-            this.Opacity = Math.Clamp(s.MarkerFillAlpha / 200.0, 0.10, 1.00);
+            this.Opacity = Math.Clamp(s.MarkerFillAlpha / 100.0, 0.10, 1.00);
             Invalidate();
         }
 
@@ -1059,8 +1072,41 @@ namespace ScreenCaptureTool
 
         private static Rectangle BuildPreviewSourceRect(Bitmap source)
         {
-            int startX = Math.Max(0, source.Width / 2);
-            return new Rectangle(startX, 0, Math.Max(1, source.Width - startX), Math.Max(1, source.Height));
+            int startX = Math.Min(source.Width - 1, Math.Max(0, source.Width / 2));
+            int endX = source.Width - 1;
+            int minX = endX;
+            int minY = source.Height - 1;
+            int maxX = startX;
+            int maxY = 0;
+            bool found = false;
+
+            for (int y = 0; y < source.Height; y++)
+            {
+                for (int x = startX; x < source.Width; x++)
+                {
+                    Color pixel = source.GetPixel(x, y);
+                    if (IsPreviewForeground(pixel))
+                    {
+                        if (x < minX) minX = x;
+                        if (y < minY) minY = y;
+                        if (x > maxX) maxX = x;
+                        if (y > maxY) maxY = y;
+                        found = true;
+                    }
+                }
+            }
+
+            if (!found)
+            {
+                return new Rectangle(startX, 0, Math.Max(1, source.Width - startX), Math.Max(1, source.Height));
+            }
+
+            return Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
+        }
+
+        private static bool IsPreviewForeground(Color pixel)
+        {
+            return pixel.A > 16 && !(pixel.R >= 230 && pixel.G >= 230 && pixel.B >= 230);
         }
 
         public void SetBaseColor(Color color)
@@ -1077,25 +1123,26 @@ namespace ScreenCaptureTool
         {
             Graphics g = e.Graphics;
             g.PageUnit = GraphicsUnit.Pixel;
-            using (Pen pen = new Pen(baseColor, settings.MarkerBorderThickness))
+            int border = settings.MarkerBorderThickness;
+            using (SolidBrush borderBrush = new SolidBrush(baseColor))
             using (Font font = new Font("Arial", 28, FontStyle.Bold))
             using (SolidBrush textBrush = new SolidBrush(baseColor))
             using (StringFormat format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
             {
                 foreach (var marker in markers)
                 {
-                    Rectangle rect = marker.Rect;
+                    Rectangle rawRect = marker.Rect;
+                    // 屏幕坐标系向右上偏移 1px: X+1, Y-1
+                    Rectangle targetRect = new Rectangle(rawRect.X + 1, rawRect.Y - 1, rawRect.Width, rawRect.Height);
+
                     if (marker.ShowPreview)
                     {
-                        double scaleX = rect.Width / (double)Math.Max(1, previewSource.Width);
-                        double scaleY = rect.Height / (double)Math.Max(1, previewSource.Height);
-                        Rectangle previewRect = new Rectangle(
-                            rect.X + (int)Math.Round(previewSourceRect.X * scaleX),
-                            rect.Y + (int)Math.Round(previewSourceRect.Y * scaleY),
-                            Math.Max(1, (int)Math.Round(previewSourceRect.Width * scaleX)),
-                            Math.Max(1, (int)Math.Round(previewSourceRect.Height * scaleY)));
+                        double scale = targetRect.Height / (double)Math.Max(1, previewSourceRect.Height);
+                        int previewWidth = Math.Max(1, (int)Math.Round(previewSourceRect.Width * scale));
+                        int previewX = targetRect.Right - previewWidth;
+                        Rectangle previewRect = new Rectangle(previewX, targetRect.Y, previewWidth, targetRect.Height);
 
-                        if (Math.Abs(scaleX - 1.0) < 0.01 && Math.Abs(scaleY - 1.0) < 0.01)
+                        if (Math.Abs(scale - 1.0) < 0.01)
                         {
                             g.InterpolationMode = InterpolationMode.NearestNeighbor;
                             g.PixelOffsetMode = PixelOffsetMode.Half;
@@ -1105,6 +1152,7 @@ namespace ScreenCaptureTool
                             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                             g.PixelOffsetMode = PixelOffsetMode.Half;
                         }
+
                         g.DrawImage(
                             previewSource,
                             previewRect,
@@ -1115,10 +1163,22 @@ namespace ScreenCaptureTool
                             GraphicsUnit.Pixel);
                     }
 
-                    g.DrawRectangle(pen, rect);
+                    // 边框向外扩一圈 border 像素，内部完全不被边框线条遮挡
+                    if (border > 0)
+                    {
+                        // 上边框
+                        g.FillRectangle(borderBrush, targetRect.X - border, targetRect.Y - border, targetRect.Width + 2 * border, border);
+                        // 下边框
+                        g.FillRectangle(borderBrush, targetRect.X - border, targetRect.Bottom, targetRect.Width + 2 * border, border);
+                        // 左边框
+                        g.FillRectangle(borderBrush, targetRect.X - border, targetRect.Y, border, targetRect.Height);
+                        // 右边框
+                        g.FillRectangle(borderBrush, targetRect.Right, targetRect.Y, border, targetRect.Height);
+                    }
+
                     if (!string.IsNullOrEmpty(marker.Text))
                     {
-                        g.DrawString(marker.Text, font, textBrush, rect, format);
+                        g.DrawString(marker.Text, font, textBrush, targetRect, format);
                     }
                 }
             }
@@ -1187,7 +1247,7 @@ namespace ScreenCaptureTool
 
         public MatchResultForm(Bitmap img, Rectangle initialRect, Settings settings, Color color)
         {
-            this.image = img;
+            this.image = (Bitmap)img.Clone();
             this.settings = settings;
             this.matchColor = color;
 
@@ -1202,14 +1262,15 @@ namespace ScreenCaptureTool
             this.AutoScaleMode = AutoScaleMode.None;
             this.WindowState = FormWindowState.Normal;
             this.DoubleBuffered = true;
-            this.Opacity = Math.Clamp(settings.MarkerFillAlpha / 200.0, 0.10, 1.00);
+            this.Opacity = Math.Clamp(settings.MarkerFillAlpha / 100.0, 0.10, 1.00);
 
             int calcScale = (int)Math.Round((initialRect.Width / (double)Math.Max(1, image.Width)) * 100.0);
             this.imageScale = Math.Clamp(calcScale, MinImageScale, MaxImageScale);
 
             this.Size = FormSize;
             int border = settings.MarkerBorderThickness;
-            this.Location = new System.Drawing.Point(initialRect.X - border, initialRect.Y - border);
+            // 浮窗内容区域对准 (rect.X + 1, rect.Y - 1)，窗口向外扩一圈 border
+            this.Location = new System.Drawing.Point(initialRect.X + 1 - border, initialRect.Y - 1 - border);
 
             this.MouseDown += MatchResultForm_MouseDown;
             this.MouseMove += MatchResultForm_MouseMove;
@@ -1221,7 +1282,7 @@ namespace ScreenCaptureTool
         public void UpdateSettings(Settings s)
         {
             this.settings = s;
-            this.Opacity = Math.Clamp(s.MarkerFillAlpha / 200.0, 0.10, 1.00);
+            this.Opacity = Math.Clamp(s.MarkerFillAlpha / 100.0, 0.10, 1.00);
             AutoSizeForm();
         }
 
@@ -1269,18 +1330,29 @@ namespace ScreenCaptureTool
                     g.DrawImage(image, destRect);
                 }
 
-                using (Pen pen = new Pen(matchColor, border))
+                // 边框向外扩一圈 border 像素，内部图像完全不被边框线条遮挡
+                if (border > 0)
                 {
-                    g.DrawRectangle(pen, destRect);
+                    using (SolidBrush borderBrush = new SolidBrush(matchColor))
+                    {
+                        // 上边框
+                        g.FillRectangle(borderBrush, 0, 0, this.Width, border);
+                        // 下边框
+                        g.FillRectangle(borderBrush, 0, destRect.Bottom, this.Width, border);
+                        // 左边框
+                        g.FillRectangle(borderBrush, 0, border, border, destRect.Height);
+                        // 右边框
+                        g.FillRectangle(borderBrush, destRect.Right, border, border, destRect.Height);
+                    }
                 }
 
                 // 右下角缩放手柄提示
                 using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, matchColor)))
                 {
                     System.Drawing.Point[] pts = {
-                        new System.Drawing.Point(destRect.Right, destRect.Bottom - 10),
-                        new System.Drawing.Point(destRect.Right, destRect.Bottom),
-                        new System.Drawing.Point(destRect.Right - 10, destRect.Bottom)
+                        new System.Drawing.Point(this.Width, this.Height - 12),
+                        new System.Drawing.Point(this.Width, this.Height),
+                        new System.Drawing.Point(this.Width - 12, this.Height)
                     };
                     g.FillPolygon(brush, pts);
                 }
@@ -1289,6 +1361,8 @@ namespace ScreenCaptureTool
 
         private void MatchResultForm_MouseDown(object sender, MouseEventArgs e)
         {
+            this.Activate();
+            this.Focus();
             if (e.Button == MouseButtons.Left)
             {
                 if (e.X > this.Width - 20 && e.Y > this.Height - 20)
@@ -1349,6 +1423,47 @@ namespace ScreenCaptureTool
             {
                 this.Close();
             }
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == Keys.Escape || IsCancelHotkey(keyData))
+            {
+                this.Close();
+                return true;
+            }
+
+            Keys key = keyData & Keys.KeyCode;
+            switch (key)
+            {
+                case Keys.Up:
+                case Keys.W:
+                    this.Top -= 1;
+                    return true;
+                case Keys.Down:
+                case Keys.S:
+                    this.Top += 1;
+                    return true;
+                case Keys.Left:
+                case Keys.A:
+                    this.Left -= 1;
+                    return true;
+                case Keys.Right:
+                case Keys.D:
+                    this.Left += 1;
+                    return true;
+            }
+
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                image?.Dispose();
+            }
+            base.Dispose(disposing);
         }
 
         private bool IsCancelHotkey(Keys keyData)
