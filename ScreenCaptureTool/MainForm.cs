@@ -60,8 +60,6 @@ namespace ScreenCaptureTool
         private TextBox txtMaxMatch;
         private Label lblMarkerBorder;
         private TextBox txtMarkerBorder;
-        private Label lblMarkerFont;
-        private TextBox txtMarkerFont;
         private Label lblMarkerAlpha;
         private TextBox txtMarkerAlpha;
         private Label lblMagnifierSize;
@@ -170,10 +168,6 @@ namespace ScreenCaptureTool
             txtMarkerBorder = new TextBox { Text = settings.MarkerBorderThickness.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
             y += rowH;
 
-            lblMarkerFont = new Label { Text = "标记文字大小 (10-48):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
-            txtMarkerFont = new TextBox { Text = settings.MarkerFontSize.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
-            y += rowH;
-
             lblMarkerAlpha = new Label { Text = "标记框透明度 (20-200):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
             txtMarkerAlpha = new TextBox { Text = settings.MarkerFillAlpha.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
             y += rowH + 6;
@@ -275,7 +269,6 @@ namespace ScreenCaptureTool
                 if (!TryReadInt("初始透明度", txtOpacity, 10, 100, out int opacity)) return;
                 if (!TryReadInt("边框大小", txtBorder, 0, 20, out int border)) return;
                 if (!TryReadInt("标记框粗细", txtMarkerBorder, 1, 10, out int markerBorder)) return;
-                if (!TryReadInt("标记文字大小", txtMarkerFont, 10, 48, out int markerFont)) return;
                 if (!TryReadInt("标记框透明度", txtMarkerAlpha, 20, 200, out int markerAlpha)) return;
                 if (!TryReadInt("放大镜大小", txtMagnifierSize, 80, 260, out int magSize)) return;
                 if (!TryReadInt("放大倍数", txtMagnifierZoom, 2, 15, out int magZoom)) return;
@@ -291,7 +284,6 @@ namespace ScreenCaptureTool
                 settings.DefaultOpacity = opacity;
                 settings.BorderSize = border;
                 settings.MarkerBorderThickness = markerBorder;
-                settings.MarkerFontSize = markerFont;
                 settings.MarkerFillAlpha = markerAlpha;
                 settings.MagnifierSize = magSize;
                 settings.MagnifierZoom = magZoom;
@@ -305,6 +297,7 @@ namespace ScreenCaptureTool
                 settings.FancyZonesExcludedApps = txtFancyZonesExcludedApps.Text.Trim();
                 settings.Save();
                 UpdateHotKey();
+                OverlayForm.ApplySettingsToOpenOverlays(settings);
                 this.Hide();
                 trayIcon.ShowBalloonTip(2000, "设置已保存", $"程序已隐藏，按 {settings.Hotkey} 开始截图", ToolTipIcon.Info);
             };
@@ -330,8 +323,6 @@ namespace ScreenCaptureTool
             settingsPanel.Controls.Add(txtBorder);
             settingsPanel.Controls.Add(lblMarkerBorder);
             settingsPanel.Controls.Add(txtMarkerBorder);
-            settingsPanel.Controls.Add(lblMarkerFont);
-            settingsPanel.Controls.Add(txtMarkerFont);
             settingsPanel.Controls.Add(lblMarkerAlpha);
             settingsPanel.Controls.Add(txtMarkerAlpha);
             settingsPanel.Controls.Add(lblMagnifierSize);
@@ -695,7 +686,7 @@ namespace ScreenCaptureTool
                 {
                     if (captureForm.ShowDialog() == DialogResult.OK)
                     {
-                        var overlay = new OverlayForm(captureForm.SelectedImage, captureForm.SelectedRegion, settings);
+                        var overlay = new OverlayForm(captureForm.SelectedImage, captureForm.SelectedRegion, settings, stampMode);
                         overlay.Show();
                     }
                 }

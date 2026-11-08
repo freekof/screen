@@ -1,12 +1,17 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace ScreenCaptureTool
 {
     public class CaptureForm : Form
     {
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
         private Bitmap screenSnapshot;
         private Rectangle selectedRegion = Rectangle.Empty;
         private Rectangle selectedRegionScreen = Rectangle.Empty;
@@ -50,6 +55,7 @@ namespace ScreenCaptureTool
             this.Cursor = Cursors.Cross;
             this.TopMost = true;
             this.ShowInTaskbar = false;
+            this.ImeMode = ImeMode.Disable;
 
             magnifierFont = new Font(this.Font.FontFamily, settings.MagnifierFontSize, FontStyle.Regular);
 
@@ -61,6 +67,9 @@ namespace ScreenCaptureTool
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
+            this.Activate();
+            this.Focus();
+            SetForegroundWindow(this.Handle);
             UpdateScale();
         }
 
@@ -76,12 +85,8 @@ namespace ScreenCaptureTool
             followTimer.Interval = 16;
             followTimer.Tick += (s, e) =>
             {
-                Point nextMouse = this.PointToClient(Cursor.Position);
-                if (nextMouse != currentMouse)
-                {
-                    currentMouse = nextMouse;
-                    this.Invalidate();
-                }
+                currentMouse = this.PointToClient(Cursor.Position);
+                this.Invalidate();
             };
             followTimer.Start();
         }
@@ -306,31 +311,18 @@ namespace ScreenCaptureTool
         {
             Graphics g = e.Graphics;
 
-            // Draw into the computed content rect so snapshot pixels and selection coordinates stay aligned.
-            Rectangle contentRect = GetContentRect();
-            if (contentRect.Size == screenSnapshot.Size)
-            {
-                g.InterpolationMode = InterpolationMode.NearestNeighbor;
-                g.PixelOffsetMode = PixelOffsetMode.Half;
-            }
-            else
-            {
-                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                g.PixelOffsetMode = PixelOffsetMode.Half;
-            }
-            g.DrawImage(screenSnapshot, contentRect);
+            // 绘制背景快照
+            g.DrawImage(screenSnapshot, 0, 0);
 
             // 绘制半透明遮罩
             using (SolidBrush overlayBrush = new SolidBrush(Color.FromArgb(120, Color.Black)))
             {
-                using (Region region = new Region(this.ClientRectangle))
+                Region region = new Region(this.ClientRectangle);
+                if (selectedRegion != Rectangle.Empty)
                 {
-                    if (selectedRegion != Rectangle.Empty)
-                    {
-                        region.Exclude(selectedRegion);
-                    }
-                    g.FillRegion(overlayBrush, region);
+                    region.Exclude(selectedRegion);
                 }
+                g.FillRegion(overlayBrush, region);
             }
 
             if (!stampMode && selectedRegion != Rectangle.Empty)
@@ -457,8 +449,6 @@ namespace ScreenCaptureTool
             srcRect.Intersect(new Rectangle(0, 0, screenSnapshot.Width, screenSnapshot.Height));
             if (srcRect.Width > 0 && srcRect.Height > 0)
             {
-                g.InterpolationMode = InterpolationMode.NearestNeighbor;
-                g.PixelOffsetMode = PixelOffsetMode.Half;
                 g.DrawImage(screenSnapshot, magRect, srcRect, GraphicsUnit.Pixel);
             }
 
