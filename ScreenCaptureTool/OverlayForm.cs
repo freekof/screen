@@ -1209,7 +1209,7 @@ namespace ScreenCaptureTool
 
             this.Size = FormSize;
             int border = settings.MarkerBorderThickness;
-            this.Location = new Point(initialRect.X - border, initialRect.Y - border);
+            this.Location = new System.Drawing.Point(initialRect.X - border, initialRect.Y - border);
 
             this.MouseDown += MatchResultForm_MouseDown;
             this.MouseMove += MatchResultForm_MouseMove;
@@ -1277,10 +1277,10 @@ namespace ScreenCaptureTool
                 // 右下角缩放手柄提示
                 using (SolidBrush brush = new SolidBrush(Color.FromArgb(150, matchColor)))
                 {
-                    Point[] pts = {
-                        new Point(destRect.Right, destRect.Bottom - 10),
-                        new Point(destRect.Right, destRect.Bottom),
-                        new Point(destRect.Right - 10, destRect.Bottom)
+                    System.Drawing.Point[] pts = {
+                        new System.Drawing.Point(destRect.Right, destRect.Bottom - 10),
+                        new System.Drawing.Point(destRect.Right, destRect.Bottom),
+                        new System.Drawing.Point(destRect.Right - 10, destRect.Bottom)
                     };
                     g.FillPolygon(brush, pts);
                 }
