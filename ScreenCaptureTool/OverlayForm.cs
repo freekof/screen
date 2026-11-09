@@ -796,18 +796,18 @@ namespace ScreenCaptureTool
                 return 0;
             }
             markerCount++;
+            Bitmap displayImg = activeCroppedImage ?? image;
             if (!stampMode)
             {
                 // F1 启动模式：生成独立可拖动、可缩放的标记浮窗，显示去除白边后的紧凑前景图像
-                Bitmap displayImg = activeCroppedImage ?? image;
                 var resultForm = new MatchResultForm(displayImg, rect, settings, currentMatchColor);
                 resultMarkerForms.Add(resultForm);
                 resultForm.Show();
             }
             else
             {
-                // F2 印章模式：保持原来标记框减半，只显示右半边图像，对齐方式按 7956ae8，鼠标穿透
-                EnsureMarkerOverlay();
+                // F2 印章模式：显示右半边图像，鼠标穿透
+                EnsureMarkerOverlay(displayImg);
                 markerOverlay.AddMarker(rect, true, null);
             }
             markerRects.Add(rect);
@@ -992,11 +992,12 @@ namespace ScreenCaptureTool
             return keyData == expected;
         }
 
-        private void EnsureMarkerOverlay()
+        private void EnsureMarkerOverlay(Bitmap? previewImg = null)
         {
+            Bitmap targetImg = previewImg ?? activeCroppedImage ?? image;
             if (markerOverlay == null || markerOverlay.IsDisposed)
             {
-                markerOverlay = new MarkerOverlayForm(settings, currentMatchColor, image);
+                markerOverlay = new MarkerOverlayForm(settings, currentMatchColor, targetImg);
                 markerOverlay.Show();
             }
             else
@@ -1024,7 +1025,6 @@ namespace ScreenCaptureTool
 
         private Settings settings;
         private readonly Bitmap previewSource;
-        private readonly Rectangle previewSourceRect;
         private Color baseColor;
         private readonly List<MarkerItem> markers = new List<MarkerItem>();
 
@@ -1032,8 +1032,7 @@ namespace ScreenCaptureTool
         {
             this.settings = settings;
             this.baseColor = baseColor;
-            this.previewSource = previewSource;
-            previewSourceRect = BuildPreviewSourceRect(previewSource);
+            this.previewSource = (Bitmap)previewSource.Clone();
             this.FormBorderStyle = FormBorderStyle.None;
             this.StartPosition = FormStartPosition.Manual;
             this.Bounds = Screen.PrimaryScreen.Bounds;
@@ -1070,45 +1069,6 @@ namespace ScreenCaptureTool
             Invalidate();
         }
 
-        private static Rectangle BuildPreviewSourceRect(Bitmap source)
-        {
-            int startX = Math.Min(source.Width - 1, Math.Max(0, source.Width / 2));
-            int endX = source.Width - 1;
-            int minX = endX;
-            int minY = source.Height - 1;
-            int maxX = startX;
-            int maxY = 0;
-            bool found = false;
-
-            for (int y = 0; y < source.Height; y++)
-            {
-                for (int x = startX; x < source.Width; x++)
-                {
-                    Color pixel = source.GetPixel(x, y);
-                    if (IsPreviewForeground(pixel))
-                    {
-                        if (x < minX) minX = x;
-                        if (y < minY) minY = y;
-                        if (x > maxX) maxX = x;
-                        if (y > maxY) maxY = y;
-                        found = true;
-                    }
-                }
-            }
-
-            if (!found)
-            {
-                return new Rectangle(startX, 0, Math.Max(1, source.Width - startX), Math.Max(1, source.Height));
-            }
-
-            return Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
-        }
-
-        private static bool IsPreviewForeground(Color pixel)
-        {
-            return pixel.A > 16 && !(pixel.R >= 230 && pixel.G >= 230 && pixel.B >= 230);
-        }
-
         public void SetBaseColor(Color color)
         {
             if (baseColor == color)
@@ -1124,6 +1084,7 @@ namespace ScreenCaptureTool
             Graphics g = e.Graphics;
             g.PageUnit = GraphicsUnit.Pixel;
             int border = settings.MarkerBorderThickness;
+            int offset = Math.Clamp(settings.MarkerOffset, 0, 20);
             using (SolidBrush borderBrush = new SolidBrush(baseColor))
             using (Font font = new Font("Arial", 28, FontStyle.Bold))
             using (SolidBrush textBrush = new SolidBrush(baseColor))
@@ -1132,17 +1093,18 @@ namespace ScreenCaptureTool
                 foreach (var marker in markers)
                 {
                     Rectangle rawRect = marker.Rect;
-                    // 屏幕坐标系向右上偏移 1px: X+1, Y-1
-                    Rectangle targetRect = new Rectangle(rawRect.X + 1, rawRect.Y - 1, rawRect.Width, rawRect.Height);
+                    // 屏幕坐标系向右上偏移 MarkerOffset px: X+offset, Y-offset
+                    Rectangle targetRect = new Rectangle(rawRect.X + offset, rawRect.Y - offset, rawRect.Width, rawRect.Height);
 
                     if (marker.ShowPreview)
                     {
-                        double scale = targetRect.Height / (double)Math.Max(1, previewSourceRect.Height);
-                        int previewWidth = Math.Max(1, (int)Math.Round(previewSourceRect.Width * scale));
-                        int previewX = targetRect.Right - previewWidth;
-                        Rectangle previewRect = new Rectangle(previewX, targetRect.Y, previewWidth, targetRect.Height);
+                        int srcX = previewSource.Width / 2;
+                        int srcW = Math.Max(1, previewSource.Width - srcX);
+                        double scaleX = targetRect.Width / (double)Math.Max(1, previewSource.Width);
+                        int dstX = targetRect.X + (int)Math.Round(srcX * scaleX);
+                        Rectangle previewRect = new Rectangle(dstX, targetRect.Y, Math.Max(1, targetRect.Right - dstX), targetRect.Height);
 
-                        if (Math.Abs(scale - 1.0) < 0.01)
+                        if (targetRect.Width == previewSource.Width && targetRect.Height == previewSource.Height)
                         {
                             g.InterpolationMode = InterpolationMode.NearestNeighbor;
                             g.PixelOffsetMode = PixelOffsetMode.Half;
@@ -1156,10 +1118,10 @@ namespace ScreenCaptureTool
                         g.DrawImage(
                             previewSource,
                             previewRect,
-                            previewSourceRect.X,
-                            previewSourceRect.Y,
-                            previewSourceRect.Width,
-                            previewSourceRect.Height,
+                            srcX,
+                            0,
+                            srcW,
+                            previewSource.Height,
                             GraphicsUnit.Pixel);
                     }
 
@@ -1184,6 +1146,15 @@ namespace ScreenCaptureTool
             }
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                previewSource?.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
         protected override void WndProc(ref Message m)
         {
             const int WM_CONTEXTMENU = 0x007B;
@@ -1201,6 +1172,7 @@ namespace ScreenCaptureTool
     public class MatchResultForm : Form
     {
         private readonly Bitmap image;
+        private readonly Rectangle initialRect;
         private Settings settings;
         private readonly Color matchColor;
         private System.Drawing.Point lastMousePos;
@@ -1248,6 +1220,7 @@ namespace ScreenCaptureTool
         public MatchResultForm(Bitmap img, Rectangle initialRect, Settings settings, Color color)
         {
             this.image = (Bitmap)img.Clone();
+            this.initialRect = initialRect;
             this.settings = settings;
             this.matchColor = color;
 
@@ -1267,10 +1240,10 @@ namespace ScreenCaptureTool
             int calcScale = (int)Math.Round((initialRect.Width / (double)Math.Max(1, image.Width)) * 100.0);
             this.imageScale = Math.Clamp(calcScale, MinImageScale, MaxImageScale);
 
-            this.Size = FormSize;
             int border = settings.MarkerBorderThickness;
-            // 浮窗内容区域对准 (rect.X + 1, rect.Y - 1)，窗口向外扩一圈 border
-            this.Location = new System.Drawing.Point(initialRect.X + 1 - border, initialRect.Y - 1 - border);
+            this.Size = new System.Drawing.Size(initialRect.Width + border * 2, initialRect.Height + border * 2);
+            int offset = Math.Clamp(settings.MarkerOffset, 0, 20);
+            this.Location = new System.Drawing.Point(initialRect.X + offset - border, initialRect.Y - offset - border);
 
             this.MouseDown += MatchResultForm_MouseDown;
             this.MouseMove += MatchResultForm_MouseMove;
@@ -1283,6 +1256,9 @@ namespace ScreenCaptureTool
         {
             this.settings = s;
             this.Opacity = Math.Clamp(s.MarkerFillAlpha / 100.0, 0.10, 1.00);
+            int border = settings.MarkerBorderThickness;
+            int offset = Math.Clamp(settings.MarkerOffset, 0, 20);
+            this.Location = new System.Drawing.Point(initialRect.X + offset - border, initialRect.Y - offset - border);
             AutoSizeForm();
         }
 
@@ -1313,11 +1289,12 @@ namespace ScreenCaptureTool
         {
             Graphics g = e.Graphics;
             int border = settings.MarkerBorderThickness;
-            System.Drawing.Size drawSize = ImageSize;
-            if (drawSize.Width > 0 && drawSize.Height > 0)
+            int contentW = Math.Max(1, this.ClientSize.Width - border * 2);
+            int contentH = Math.Max(1, this.ClientSize.Height - border * 2);
+            if (contentW > 0 && contentH > 0)
             {
-                Rectangle destRect = new Rectangle(border, border, drawSize.Width, drawSize.Height);
-                if (ImageScale == 100)
+                Rectangle destRect = new Rectangle(border, border, contentW, contentH);
+                if (destRect.Width == image.Width && destRect.Height == image.Height)
                 {
                     g.InterpolationMode = InterpolationMode.NearestNeighbor;
                     g.PixelOffsetMode = PixelOffsetMode.Half;

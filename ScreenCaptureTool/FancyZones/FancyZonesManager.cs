@@ -1000,25 +1000,6 @@ namespace ScreenCaptureTool.FancyZones
             NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
             if (pid == currentPid) return false;
 
-            if (!string.IsNullOrWhiteSpace(settings.FancyZonesExcludedApps))
-            {
-                try
-                {
-                    using var proc = Process.GetProcessById((int)pid);
-                    string name = proc.ProcessName;
-                    string[] excluded = settings.FancyZonesExcludedApps
-                        .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    foreach (string ex in excluded)
-                    {
-                        if (name.Equals(ex.Trim(), StringComparison.OrdinalIgnoreCase))
-                            return false;
-                    }
-                }
-                catch
-                {
-                }
-            }
-
             return true;
         }
 

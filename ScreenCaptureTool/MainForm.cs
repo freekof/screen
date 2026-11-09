@@ -33,7 +33,6 @@ namespace ScreenCaptureTool
         private ComboBox cmbFancyZonesActivationKey;
         private TextBox txtFancyZonesSpacing;
         private CheckBox chkFancyZonesRestoreSize;
-        private TextBox txtFancyZonesExcludedApps;
         private Button btnOpenLayoutEditor;
 
         [DllImport("user32.dll")]
@@ -62,6 +61,8 @@ namespace ScreenCaptureTool
         private TextBox txtMarkerBorder;
         private Label lblMarkerAlpha;
         private TextBox txtMarkerAlpha;
+        private Label lblMarkerOffset;
+        private TextBox txtMarkerOffset;
         private Label lblMagnifierSize;
         private TextBox txtMagnifierSize;
         private Label lblMagnifierZoom;
@@ -170,6 +171,10 @@ namespace ScreenCaptureTool
 
             lblMarkerAlpha = new Label { Text = "标记框透明度 (10-100)%:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
             txtMarkerAlpha = new TextBox { Text = settings.MarkerFillAlpha.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
+            y += rowH;
+
+            lblMarkerOffset = new Label { Text = "标记框偏移 (0-20)px:", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
+            txtMarkerOffset = new TextBox { Text = settings.MarkerOffset.ToString(), Location = new Point(inputX, y), Size = new Size(inputW, 23) };
             y += rowH + 6;
 
             // === 放大镜参数组 ===
@@ -239,15 +244,6 @@ namespace ScreenCaptureTool
                 Location = new Point(labelX, y + 2),
                 Size = new Size(labelW, 22)
             };
-            y += rowH;
-
-            var lblExcludedApps = new Label { Text = "排除程序 (逗号分隔):", Location = new Point(labelX, y + 2), Size = new Size(labelW, 20) };
-            txtFancyZonesExcludedApps = new TextBox
-            {
-                Text = settings.FancyZonesExcludedApps,
-                Location = new Point(inputX, y),
-                Size = new Size(inputW, 23)
-            };
             y += rowH + 6;
 
             btnOpenLayoutEditor = new Button
@@ -270,6 +266,7 @@ namespace ScreenCaptureTool
                 if (!TryReadInt("边框大小", txtBorder, 0, 20, out int border)) return;
                 if (!TryReadInt("标记框粗细", txtMarkerBorder, 1, 10, out int markerBorder)) return;
                 if (!TryReadInt("标记框透明度", txtMarkerAlpha, 10, 100, out int markerAlpha)) return;
+                if (!TryReadInt("标记框偏移", txtMarkerOffset, 0, 20, out int markerOffset)) return;
                 if (!TryReadInt("放大镜大小", txtMagnifierSize, 80, 260, out int magSize)) return;
                 if (!TryReadInt("放大倍数", txtMagnifierZoom, 2, 15, out int magZoom)) return;
                 if (!TryReadInt("放大镜文字大小", txtMagnifierFont, 8, 20, out int magFont)) return;
@@ -285,6 +282,7 @@ namespace ScreenCaptureTool
                 settings.BorderSize = border;
                 settings.MarkerBorderThickness = markerBorder;
                 settings.MarkerFillAlpha = markerAlpha;
+                settings.MarkerOffset = markerOffset;
                 settings.MagnifierSize = magSize;
                 settings.MagnifierZoom = magZoom;
                 settings.MagnifierFontSize = magFont;
@@ -294,7 +292,6 @@ namespace ScreenCaptureTool
                 settings.FancyZonesActivationKey = Math.Clamp(cmbFancyZonesActivationKey.SelectedIndex, 0, 2);
                 settings.FancyZonesSpacing = zoneSpacing;
                 settings.FancyZonesRestoreSize = chkFancyZonesRestoreSize.Checked;
-                settings.FancyZonesExcludedApps = txtFancyZonesExcludedApps.Text.Trim();
                 settings.Save();
                 UpdateHotKey();
                 OverlayForm.ApplySettingsToOpenOverlays(settings);
@@ -325,6 +322,8 @@ namespace ScreenCaptureTool
             settingsPanel.Controls.Add(txtMarkerBorder);
             settingsPanel.Controls.Add(lblMarkerAlpha);
             settingsPanel.Controls.Add(txtMarkerAlpha);
+            settingsPanel.Controls.Add(lblMarkerOffset);
+            settingsPanel.Controls.Add(txtMarkerOffset);
             settingsPanel.Controls.Add(lblMagnifierSize);
             settingsPanel.Controls.Add(txtMagnifierSize);
             settingsPanel.Controls.Add(lblMagnifierZoom);
@@ -344,8 +343,6 @@ namespace ScreenCaptureTool
             settingsPanel.Controls.Add(lblSpacing);
             settingsPanel.Controls.Add(txtFancyZonesSpacing);
             settingsPanel.Controls.Add(chkFancyZonesRestoreSize);
-            settingsPanel.Controls.Add(lblExcludedApps);
-            settingsPanel.Controls.Add(txtFancyZonesExcludedApps);
             settingsPanel.Controls.Add(btnOpenLayoutEditor);
             settingsPanel.Controls.Add(btnApply);
             settingsPanel.Controls.Add(btnCapture);
